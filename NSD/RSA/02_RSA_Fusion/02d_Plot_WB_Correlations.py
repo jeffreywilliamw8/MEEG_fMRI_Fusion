@@ -1,3 +1,10 @@
+"""
+This script plots the fusion results (correlation time courses)
+for encoding and RSA on brain flatmaps, at each EEG time point.
+The results are averaged across subjects
+"""
+
+
 import os
 import numpy as np
 import cortex
@@ -136,7 +143,7 @@ for t in tqdm(range(n_time_points)):
     os.remove(png1)
     os.remove(png2)
 
-    print("✅ Saved combined image to:", out_file)
+    print("Saved combined image to:", out_file)
 
 print("Plotting complete!")
 

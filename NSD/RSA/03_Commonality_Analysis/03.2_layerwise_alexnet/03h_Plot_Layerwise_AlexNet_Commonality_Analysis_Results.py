@@ -18,7 +18,6 @@ n_bootstraps = 10000
 rois = ['V1', 'V2', 'V3', 'hV4', 'ventral', 'ventral']
 
 # Defining individual labels for AlexNet layers
-#layer_keys = [f'layer-{i}' for i in range(1, 9)]
 layer_keys = [
     'features.2',    # Conv1 + Pool
     'features.5',    # Conv2 + Pool
@@ -32,28 +31,13 @@ layer_keys = [
 layer_labels = {f'layer-{i}': f'AlexNet Layer {i}' for i in range(1, 9)}
 
 
-# Viridis colormap sequence (8 steps from dark/low to bright/high)
-colors = [
-    "#440154",  # Deep Purple / Indigo (Low baseline)
-    "#46337E",  # Dark Blue-Purple
-    "#365D8D",  # Steel Blue
-    "#277F8E",  # Teal / Dark Cyan
-    "#1FA187",  # Emerald Green
-    "#4AC16D",  # Medium Green
-    "#9FDA3A",  # Yellow-Green
-    "#FD9C25"   # Bright Yellow (High peak)
-]
-# Generate a sequential high-contrast gradient across the 8 layers (Early -> Late)
-#cmap = plt.get_cmap('viridis')
 cmap = plt.get_cmap('coolwarm')
 
 
-layer_colors = {layer_keys[i]: colors[i] for i in range(len(colors))}
 layer_colors = {layer_keys[i]: cmap(v) for i,v in enumerate(np.linspace(0, 1, len(layer_keys)))}
 
 
 # Base results root directory for AlexNet hierarchy
-# Adjust the root directory naming convention below if your folder path differs
 base_results_root = '/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/commonality_analysis/layerwise_alexnet'
 
 PLOTS_DIR = '/home/jeffreykatab/Projects/fusion/NSD/plots/commonality_analysis/roi/layerwise_alexnet'
@@ -199,5 +183,5 @@ save_path = os.path.join(PLOTS_DIR, 'layerwise_alexnet_ca.svg')
 plt.savefig(save_path, dpi=300, bbox_inches='tight')
 plt.close()
 
-print(f"Success! Hierarchical layer encoding plot saved to: {save_path}")
+print(f"Plot saved to: {save_path}")
 print(f"Total Execution time: {time.time() - start_time:.2f} seconds.")

@@ -94,7 +94,7 @@ with h5py.File(fmri_h5_file, 'r') as f:
     dset = f['rdms']
     fmri_rdms = dset[7802*(args.fmri_split - 1):7802*args.fmri_split, :]
     n_vertices = fmri_rdms.shape[0]
-    # Initialize storage dictionaries for your 4 requested variances
+    # Initialize storage dictionaries
     results = {
         'unique_vision': np.zeros((n_time_points, n_vertices), dtype=np.float32),
         'unique_language': np.zeros((n_time_points, n_vertices), dtype=np.float32),

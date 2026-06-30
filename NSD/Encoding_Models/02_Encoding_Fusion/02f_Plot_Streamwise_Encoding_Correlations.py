@@ -102,7 +102,7 @@ stream_curves = {
     'midparietal': stream_data_list[3],
     'ventral': stream_data_list[4],
     'lateral': stream_data_list[5],
-    'parietal': stream_data_list[6]
+    'dorsal': stream_data_list[6]
 }
 np.save(os.path.join(PLOTS_DIR, 'em_stream_curves.npy'), stream_curves)
 

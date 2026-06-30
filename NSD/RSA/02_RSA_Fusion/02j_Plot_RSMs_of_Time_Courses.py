@@ -41,8 +41,7 @@ for stream in streams:
     print("Shape of the curves: (encoding, rsa):", em_curve.shape, rsa_curve.shape)
     em_curves.append(em_curve)
     rsa_curves.append(rsa_curve)
-#em_curves = [np.mean(array[:, post_stim_idx], axis=0) for array in em_curves_dict.values()] # Averaging time courses across subjects
-#rsa_curves = [np.mean(array[:, post_stim_idx], axis=0) for array in rsa_curves_dict.values()]
+
 
 
 # Initialize blank similarity matrix arrays
@@ -66,7 +65,7 @@ rsa_vector = rsa_matrix[upper_tri_indices]
 
 # Compute second-order Spearman rank correlation between the profiles
 third_order_r, p_value = spearmanr(em_vector, rsa_vector)
-print(f"✅ Third-order Spearman correlation between EM and RSA matrices: R = {third_order_r:.4f}")
+print(f"Third-order Spearman correlation between EM and RSA matrices: R = {third_order_r:.4f}")
 
 # =============================================================================
 # Plotting the Side-by-Side Similarity Matrices

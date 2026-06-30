@@ -29,14 +29,13 @@ n_vertices_left_hemi = left_mesh[0].shape[0]
 # =============================================================================
 # Encoding model results
 em_corrs_left = np.zeros((359, 163842)) # Initialize an empty array for left hemisphere results
-subject_list = [1,4,5,6,7,8]   # List of subjects to process
+subject_list = [1]   # List of subjects to process
 # Loop through each subject and load the corresponding results
 print("Loading Encoding model results...")
 for subject in subject_list:
     corrs_dir = f'/scratch/jeffreykatab/Projects/fusion/NSD/Encoding_Models/results/correlations/encoding_fusion/whole_brain/subject-{subject}'
     data_dir_l = os.path.join(corrs_dir, 'correlations_left.npy')
-    em_corrs_left += np.load(data_dir_l)
-em_corrs_left /= len(subject_list)  # Average the results across subjects
+    em_corrs_left = np.load(data_dir_l)
 print("Shape of the Encoding correlation time courses (left hemisphere): ", em_corrs_left.shape)
 Max_Value = np.max(em_corrs_left) #
 print("Global max value: ", Max_Value)
@@ -48,8 +47,7 @@ ncsnr_left = np.zeros(163842).astype(np.float32) # Initialize an empty array for
 for subject in subject_list:
     berg = BERG(berg_dir='/scratch/giffordale95/projects/brain-encoding-response-generator')
     metadata = berg.get_model_metadata('fmri-nsd_fsaverage-huze', subject=subject)
-    ncsnr_left += metadata['fmri']['lh_ncsnr']
-ncsnr_left /= len(subject_list)  # Average the results across subjects
+    ncsnr_left = metadata['fmri']['lh_ncsnr']
 
 noisy_voxels = ncsnr_left < 0.2
 em_corrs_left[:, noisy_voxels] = np.nan

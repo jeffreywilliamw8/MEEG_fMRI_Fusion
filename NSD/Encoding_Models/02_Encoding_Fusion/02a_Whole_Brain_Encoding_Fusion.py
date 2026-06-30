@@ -42,7 +42,7 @@ print('Shape of the EEG data (train, test):', eeg_train.shape, eeg_test.shape)
 # Load the fMRI responses
 # =============================================================================
 fmri_train, fmri_test = load_fmri_hemi_data(args.subject, args.hemisphere) # Shape: (9000, 163842), (515, 163842)
-fmri_train = fmri_train[:, 7802*(args.fmri_split - 1):7802*args.fmri_split]
+fmri_train = fmri_train[:, 7802*(args.fmri_split - 1):7802*args.fmri_split] # For parallelization and efficient computing, we divide the 163842 fsaverage vertices in each hemisphere into 21 splits of 7802 vertices each
 fmri_test = fmri_test[:, 7802*(args.fmri_split - 1):7802*args.fmri_split]
 fmri_test_z = (fmri_test - fmri_test.mean(0)) /  (fmri_test.std(0) + 1e-8)
 
@@ -61,14 +61,13 @@ corrs = []
 # Fitting a linear model that predicts the responses of a group of vertices
 # using all EEG channels at each time point
 #============================================================================
-alphas = np.logspace(-6, 10, 20) # List of alphas for Ridge regression
+alphas = np.logspace(-6, 3, 20) # List of alphas for Ridge regression
 print("Starting training...")
 for t in tqdm.tqdm(range(eeg_train.shape[2])):
     eeg2fmri = RidgeCV(alphas=alphas, store_cv_results=True)
     eeg2fmri.fit(eeg_train[:, :, t], fmri_train)
 
     # Correlation between the predicted and actual fMRI responses on the training set
-    #pred_fmri = eeg2fmri.predict(eeg_test[:, :, t])
     pred_fmri = eeg_test[:, :, t]@eeg2fmri.coef_.T + eeg2fmri.intercept_
     pred_fmri_z = (pred_fmri - pred_fmri.mean(0)) / (pred_fmri.std(0) + 1e-8)
     corr = np.diag(pred_fmri_z.T @ fmri_test_z) / len(pred_fmri_z)

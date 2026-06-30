@@ -12,7 +12,6 @@ start_time = time.time()
 # --- Configuration ---
 subject_list = [1, 4, 5, 6, 7, 8]
 
-# Ordered labels and explicit high-contrast colors for each integrated group
 rois = ['V1', 'V2', 'V3', 'hV4', 'ventral']
 area_colors = [
     "#480758",  # V1 (Deep Purple)

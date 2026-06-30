@@ -57,7 +57,6 @@ def flatten_rdm(rdm):
 def single_feature_rdm(array):
     n_samples = array.shape
     # Fast vectorized calculation of squared Euclidean distances for a single feature vector
-    # (array - array.T)^2
     diff = array - array.T
     return np.square(diff, dtype=np.float32)
 
@@ -153,7 +152,6 @@ if args.target == 'fmri':
     del fmri_train, fmri_test 
 
     print(f"\n>>> Dispatching {n_timepoints} Timepoints to Joblib Parallel Pool (Target: fMRI) <<<")
-    # n_jobs=-1 automatically scales up to the CPU allocation specified in your Slurm configuration
     parallel_outputs = Parallel(n_jobs=4, verbose=10)(
     delayed(process_time_point_fmri_target)(
         eeg_train[:, :, t], 

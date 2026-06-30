@@ -79,7 +79,6 @@ partial_correlations = {
 print("Starting Partial Correlation Analysis Loop")
 
 for t in tqdm(range(n_time)):
-#for t in tqdm([51, 77, 102, 128, 153, 179, 205, 230, 256, 281, 307, 333, 358]):
     # 1. Compute visual/language t-fMRI model predictions across all vertices at time t
     vision_t_fmri_model = LinearRegression()
     language_t_fmri_model = LinearRegression()

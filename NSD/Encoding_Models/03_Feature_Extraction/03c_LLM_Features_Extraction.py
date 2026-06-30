@@ -1,23 +1,3 @@
-"""Extract LLM embeddings for the NSD stimuli of each subject, and reduce them
-to N principal components using PCA, where N corresponds to the number of
-principal components that explain 95% of the variance.
-
-Parameters
-----------
-subject : int
-    The subject identifier for the fMRI encoding models. Since the used
-    encoding models are trained on NSD data, valid subject identifiers
-    are integers from 1 to 8.
-berg_dir : str
-    Directory of the BERG.
-nsd_dir : str
-    Directory of the Natural Scenes Dataset.
-    https://naturalscenesdataset.org/
-coco_dir : str
-    Directory of the COCO dataset.
-    https://cocodataset.org/
-"""
-
 import argparse
 import os
 import numpy as np

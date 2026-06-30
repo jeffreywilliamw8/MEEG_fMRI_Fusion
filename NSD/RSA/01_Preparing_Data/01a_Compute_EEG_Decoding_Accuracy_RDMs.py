@@ -37,8 +37,6 @@ os.makedirs(out_dir, exist_ok=True)
 # Load data
 eeg_dict = np.load(os.path.join(data_dir, f'eeg_test_sub-{args.subject:02d}.npy'), allow_pickle=True).item()
 eeg_data = eeg_dict['eeg_test']
-
-# Fixed the indexing selection bug here
 sub_sample_idx = np.random.choice(eeg_data.shape[0], size=100, replace=False)
 eeg_data = eeg_data[sub_sample_idx]
 print(f"EEG data shape: {eeg_data.shape} (Stimuli, Trials, Channels, Time)")
@@ -87,7 +85,6 @@ def decode_single_timepoint(t, pseudo_data, pair_indices, n_pseudo, n_pairs):
 # =============================================================================
 print(f"\n>>> Dispatching {n_time} Timepoints to Joblib Parallel Pool <<<")
 
-# n_jobs=-1 naturally provisions all hardware threads allotted to your task
 parallel_outputs = Parallel(n_jobs=10, verbose=10)(
     delayed(decode_single_timepoint)(t, pseudo_data, pair_indices, n_pseudo, n_pairs)
     for t in range(n_time)

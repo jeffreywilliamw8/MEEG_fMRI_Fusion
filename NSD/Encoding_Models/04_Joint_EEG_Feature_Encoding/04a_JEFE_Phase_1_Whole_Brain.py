@@ -62,7 +62,7 @@ if os.path.isdir(weights_save_dir) == False:
 # Fitting a linear model that predicts the responses of a group of vertices
 # using all EEG channels at each time point
 #============================================================================
-alphas = np.logspace(-6, 10, 20) # List of alphas for Ridge regression
+alphas = np.logspace(-6, 3, 20) # List of alphas for Ridge regression
 weights = {}
 weights['coef_'] = []
 weights['intercept_'] = []

@@ -23,17 +23,16 @@ n_vertices = 163842
 
 em_corrs_left = np.zeros((n_timepoints, n_vertices))
 em_corrs_right = np.zeros((n_timepoints, n_vertices))
-subject_list = [1]
+subject_list = [1] # Subject number to be changed for other subjects
 
 print("Loading Encoding results...")
 for subject in subject_list:
     corrs_dir = f'/scratch/jeffreykatab/Projects/fusion/NSD/Encoding_Models/results/correlations/encoding_fusion/whole_brain/subject-{subject}'
     data_dir_l = os.path.join(corrs_dir, 'correlations_left.npy')
     data_dir_r = os.path.join(corrs_dir, 'correlations_right.npy')
-    em_corrs_left += np.load(data_dir_l)
-    em_corrs_right += np.load(data_dir_r)
-em_corrs_left /= len(subject_list)
-em_corrs_right /= len(subject_list)
+    em_corrs_left = np.load(data_dir_l)
+    em_corrs_right = np.load(data_dir_r)
+
 
 # Combine hemispheres into full-brain matrices: shape (n_timepoints, 2 * n_vertices)
 em_full_brain = np.concatenate([em_corrs_left, em_corrs_right], axis=1)
@@ -47,10 +46,9 @@ for subject in subject_list:
     corrs_dir = f'/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/correlations/searchlight_fusion/n_neighbours-100/metric_correlation/aggregated_results/subject-{subject}'
     data_dir_l = os.path.join(corrs_dir, f'subject-{subject}_lh_hemisphere_timecourse.npy')
     data_dir_r = os.path.join(corrs_dir, f'subject-{subject}_rh_hemisphere_timecourse.npy')
-    rsa_corrs_left += np.load(data_dir_l)
-    rsa_corrs_right += np.load(data_dir_r)
-rsa_corrs_left /= len(subject_list)
-rsa_corrs_right /= len(subject_list)
+    rsa_corrs_left = np.load(data_dir_l)
+    rsa_corrs_right = np.load(data_dir_r)
+
 
 # Combine hemispheres into full-brain matrices: shape (n_timepoints, 2 * n_vertices)
 rsa_full_brain = np.concatenate([rsa_corrs_left, rsa_corrs_right], axis=1)
@@ -119,4 +117,3 @@ plt.close()
 end_time = time.time()
 print(f"\nExecution Complete! Total Time: {end_time - start_time:.2f} seconds.")
 
-# /home/jeffreykatab/Projects/fusion/NSD/RSA/plots/wb_em_rsa_ctc_spearman.svg

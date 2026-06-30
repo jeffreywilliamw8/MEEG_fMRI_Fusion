@@ -21,7 +21,6 @@ roi_groups = {
     'ventral': ['ventral']
 }
 
-# Ordered labels and explicit high-contrast colors for each integrated group
 area_labels = ['V1', 'V2', 'V3', 'hV4', 'ventral']
 area_colors = [
     "#480758",  # V1 (Deep Purple)
@@ -33,7 +32,6 @@ area_colors = [
 
 n_bootstraps = 10000
 
-# Mapping internal saved partial correlation dictionary keys to vertical stack indices
 partitions = {
     'total_correlation': {'title': 'Total Vision DNN and LLM Variance', 'pos_idx': 0},
     'vision_partial_correlation': {'title': 'Unique Vision DNN Variance', 'pos_idx': 1},
@@ -51,7 +49,6 @@ times = get_eeg_times()
 n_timepoints = len(times)
 
 # --- Data Aggregation ---
-# Structural layout: aggregated_data[partition_key][Area_idx] -> shape: (n_subjects, n_time)
 aggregated_data = {part: [[] for _ in area_labels] for part in partitions}
 
 print(">>> Aggregating Encoding Partial Correlation ROI Data <<<")
@@ -70,12 +67,10 @@ for a_idx, area in enumerate(area_labels):
                 if os.path.exists(file_path):
                     # Load the unified partial correlation dictionary file
                     results_dict = np.load(file_path, allow_pickle=True).item()
-                    #results_dict = np.nan_to_num(data, nan=0.0)
                     
                     for part in partitions:
                         # shape: (n_time, n_vertices)
                         data = results_dict[part]
-                        #data = np.nan_to_num(data, nan=0.0)
                         
                         pooled_vertices[part].append(data)
                         
@@ -84,7 +79,7 @@ for a_idx, area in enumerate(area_labels):
             if len(pooled_vertices[part]) > 0:
                 # Concatenate all hemispheres and sub-ROIs along the vertex dimension (axis=1)
                 all_area_vertices = np.concatenate(pooled_vertices[part], axis=1)
-                # Average across the combined vertex pool to get a clean 1D timecourse
+                # Average across the combined vertex pool to get a 1D timecourse
                 subject_timecourse = np.mean(all_area_vertices, axis=1)
                 aggregated_data[part][a_idx].append(subject_timecourse)
 

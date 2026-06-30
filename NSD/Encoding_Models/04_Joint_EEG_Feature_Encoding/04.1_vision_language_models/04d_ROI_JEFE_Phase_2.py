@@ -125,8 +125,7 @@ if fmri_test.shape[1]>0:
         t_fmri = eeg2fmri.predict(eeg_train[:,:,t])
 
         # Fitting a new linear regression model using the trained predicted t-fMRI as target
-        #encoding_model = RidgeCV(alphas=alphas, store_cv_results=True)
-        encoding_model = LinearRegression()
+        encoding_model = RidgeCV(alphas=alphas, store_cv_results=True)
         encoding_model.fit(features_train, t_fmri)
         # Store the encoding fusion model weights (will be used later for variance partitioning)
         encoding_models_weights['coef_'].append(encoding_model.coef_.astype(np.float32))

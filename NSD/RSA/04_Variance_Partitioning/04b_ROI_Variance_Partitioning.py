@@ -77,7 +77,7 @@ del lang_test
 # =============================================================================
 n_time_points = eeg_rdms.shape[0]
 
-# Initialize storage dictionaries for your 4 requested variances
+# Initialize storage dictionaries
 results = {
     'unique_vision': np.zeros(n_time_points, dtype=np.float32),
     'unique_language': np.zeros(n_time_points, dtype=np.float32),
@@ -89,7 +89,6 @@ print("Variance partitioning loop has started...")
 # Static Baseline Step: Features only model -> R2(Y | Vis, Lang)
 combined_features_rdm = np.vstack((vision_rdm, lang_rdm)).T
 
-# Analogy to double-encoding: fit feature RDM to EEG RDM, and then predicted EEG RDM to fMRI RDM1
 for t in tqdm(range(n_time_points), desc="Processing Timepoints"):
     eeg_rdm = eeg_rdms[t]
 

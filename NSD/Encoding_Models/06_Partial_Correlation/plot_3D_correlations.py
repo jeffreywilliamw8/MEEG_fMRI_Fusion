@@ -50,15 +50,14 @@ time_map = { # dictionary mapping time indices to milliseconds w.r.t stimulus on
 times = [51, 102, 128, 179, 256, 307, 358]
 for correlation_type in correlation_types:
     results_left = np.zeros((13, 163842)) # Initialize an empty array for left hemisphere results
-    subject_list = [1,4,5,6,7,8]   # List of subjects to process
+    subject_list = [1]   # List of subjects to process
     # Loop through each subject and load the corresponding results
     # /scratch/jeffreykatab/Projects/fusion/NSD/Encoding_Models/results/partial_correlation/wb/subject
     print("Loading Encoding model results...")
     for subject in subject_list:
         corrs_dir = f'/scratch/jeffreykatab/Projects/fusion/NSD/Encoding_Models/results/partial_correlation/wb/subject-{subject}'
         data_dir_l = os.path.join(corrs_dir, f'{correlation_type}_left.npy')
-        results_left += np.load(data_dir_l)
-    results_left /= len(subject_list)  # Average the results across subjects
+        results_left = np.load(data_dir_l)
     results_left = results_left[[0,2,3,5,8,10,12], :]
     print("Shape of the time courses (left hemisphere): ", results_left.shape)
     Max_Value = np.max(results_left) #
@@ -71,8 +70,7 @@ for correlation_type in correlation_types:
     for subject in subject_list:
         berg = BERG(berg_dir='/scratch/giffordale95/projects/brain-encoding-response-generator')
         metadata = berg.get_model_metadata('fmri-nsd_fsaverage-huze', subject=subject)
-        ncsnr_left += metadata['fmri']['lh_ncsnr']
-    ncsnr_left /= len(subject_list)  # Average the results across subjects
+        ncsnr_left = metadata['fmri']['lh_ncsnr']
 
     noisy_voxels = ncsnr_left < 0.2
     results_left[:, noisy_voxels] = np.nan

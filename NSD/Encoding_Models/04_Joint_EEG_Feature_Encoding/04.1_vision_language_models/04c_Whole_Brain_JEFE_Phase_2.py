@@ -86,7 +86,7 @@ elif args.dnn_type == 'both':
     features_train = np.concatenate((vision_features_train, language_features_train), axis=1)
     features_test = np.concatenate((vision_features_test, language_features_test), axis=1)
 
-print("Shape of the features data (train, test):", features_train.shape, features_test.shape) # Should be (9000, 250), (515, 250)
+print("Shape of the features data (train, test):", features_train.shape, features_test.shape) # Should be (9000, 250), (515, 250) or (9000, 500), (515, 500)
 
 #=========================================================================
 # Settings for saving the correlation coefficients and regression weights

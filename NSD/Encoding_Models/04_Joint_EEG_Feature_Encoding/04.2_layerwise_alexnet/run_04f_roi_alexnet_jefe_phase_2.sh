@@ -49,4 +49,4 @@ source /home/jeffreykatab/anaconda3/etc/profile.d/conda.sh
 conda activate myenv
 
 # Run the job
-python 04g_ROI_AlexNet_Layerwise_JEFE_Phase_2.py --subject $subject --hemisphere $hemi --roi $roi --layer $layer
+python 04f_ROI_AlexNet_Layerwise_JEFE_Phase_2.py --subject $subject --hemisphere $hemi --roi $roi --layer $layer

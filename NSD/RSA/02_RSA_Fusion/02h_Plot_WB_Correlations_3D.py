@@ -28,7 +28,7 @@ n_vertices_left_hemi = left_mesh[0].shape[0]
 # Load the encoding accuracy results
 # =============================================================================
 # Encoding model results
-subject_list = [1,4,5,6,7,8]   # List of subjects to process
+subject_list = [1]   # Subject number to be changed for other subjects
 # Loop through each subject and load the corresponding results
 # RSA results
 rsa_corrs_left = np.zeros((359, 163842)).astype(np.float32) # Initialize an empty array for left hemisphere results
@@ -37,9 +37,8 @@ print("Loading RSA results...")
 for subject in subject_list:
     corrs_dir = f'/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/correlations/searchlight_fusion/n_neighbours-100/metric_correlation/aggregated_results/subject-{subject}'
     data_dir_l = os.path.join(corrs_dir, f'subject-{subject}_lh_hemisphere_timecourse.npy')
-    rsa_corrs_left += np.load(data_dir_l)
+    rsa_corrs_left = np.load(data_dir_l)
 
-rsa_corrs_left /= len(subject_list)  # Average the results across subjects
 Max_Value = np.max(rsa_corrs_left) #
 print("Global max value: ", Max_Value)
 # Noise ceilings
@@ -48,8 +47,7 @@ ncsnr_left = np.zeros(163842).astype(np.float32) # Initialize an empty array for
 for subject in subject_list:
     berg = BERG(berg_dir='/scratch/giffordale95/projects/brain-encoding-response-generator')
     metadata = berg.get_model_metadata('fmri-nsd_fsaverage-huze', subject=subject)
-    ncsnr_left += metadata['fmri']['lh_ncsnr']
-ncsnr_left /= len(subject_list)  # Average the results across subjects
+    ncsnr_left = metadata['fmri']['lh_ncsnr']
 
 noisy_voxels = ncsnr_left < 0.2
 rsa_corrs_left[:, noisy_voxels] = np.nan

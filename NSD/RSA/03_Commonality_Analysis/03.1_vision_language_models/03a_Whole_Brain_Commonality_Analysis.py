@@ -93,7 +93,7 @@ with h5py.File(fmri_h5_file, 'r') as f:
         feature_model.fit(features_rdm.reshape(-1, 1), fmri_rdms[vertex, :])
         r2_features = feature_model.score(features_rdm.reshape(-1, 1), fmri_rdms[vertex])
         #for t in range(eeg_rdms.shape[0]):
-        for t in [51, 77, 102, 128, 153, 179, 205]:
+        for t in [51, 77, 102, 128, 153, 179, 205, 230, 256, 281, 307, 333, 358]:
 
             # EEG model: fMRI RDM ~ EEG RDM
             eeg_model = LinearRegression()
