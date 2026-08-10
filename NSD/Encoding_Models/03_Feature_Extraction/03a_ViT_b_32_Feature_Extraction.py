@@ -1,3 +1,7 @@
+"""
+This script extracts features from the NSD images using the ViTB32  model.
+"""
+
 import argparse
 import numpy as np
 import torch

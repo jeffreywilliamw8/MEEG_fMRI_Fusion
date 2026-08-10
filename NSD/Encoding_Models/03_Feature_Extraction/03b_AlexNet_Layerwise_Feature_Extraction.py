@@ -1,3 +1,7 @@
+"""
+This script extracts layer-wise features from the NSD images using the AlexNet model.
+"""
+
 import argparse
 import numpy as np
 import torch

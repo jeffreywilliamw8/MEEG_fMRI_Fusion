@@ -1,12 +1,36 @@
+"""
+This script implements the second phase of the Stimulus feature encoding fusion/Joint EEG-Feature Encoding Fusion (JEFE) for
+the a specific Region of Interest (ROI), using features extracted from a specific layer of the AlexNet model. 
+The second phase consists of using the pre-trained EEG-to-fMRI encoding model weights (from phase 1) to predict fMRI responses
+from EEG data at each time point, and then training a new linear regression model to predict the t-fMRI responses from 
+the stimulus features (DNN features) at each time point.
+
+Parameters
+----------
+subject : int
+    The number of the NSD participant pair for which the encoding fusion is performed.
+hemisphere : str
+    The hemisphere of the brain to analyze ('lh' for left hemisphere, 'rh' for right hemisphere).
+roi : str
+    The region of interest (ROI) to analyze (e.g., 'V1v', 'V1d', etc.).
+cv_split : str
+    The half of repeats to use for training the EEG-to-fMRI encoding model ('even' or 'odd'). The other half will be used for testing in phase 2 of the joint EEG-feature encoding fusion analysis.
+dnn_type : str
+    The type of DNN features to use for the joint encoding fusion: "vdnn" for vision DNN features, "llm" for language model features, or "both" for using both types of features (via concatenation).
+n_jobs : int
+    Number of parallel workers used across time points (-1 = all available cores).
+
+"""
+
+
 import numpy as np
 import os
 import random
 import argparse
-from sklearn.linear_model import LinearRegression, RidgeCV
+from sklearn.linear_model import RidgeCV
 import time
 import tqdm
 from utils import load_fmri_roi_data
-import h5py
 # Start time
 start_time = time.time()
 
@@ -23,6 +47,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--subject', type=int, default=1)
 parser.add_argument('--hemisphere', type=str, default='lh')
 parser.add_argument('--roi', type=str, default='V1v')
+parser.add_argument('--cv_split', type=str, default='odd') # Even/odd cross-validation split
 
 alexnet_layers = [
     'features.2',    # Conv1 + Pool
@@ -47,7 +72,11 @@ for key, val in vars(args).items():
 # Loading the training EEG responses (odd repeats for phase 2)
 #==============================================================
 data_path = '/scratch/jeffreykatab/Projects/fusion/NSD/prepared_data'
-eeg_train = np.load(os.path.join(data_path, f'eeg_train_sub-{args.subject:02d}_trial_avg-odd.npy'), allow_pickle=True).item()['eeg_train'] # Shape: (9000, 160, 359)
+cv_dict = {
+        'even': 'odd', # If 'even' was used for phase 1, 'odd' will be used for phase 2, and vice-versa
+        'odd': 'even'
+    }
+eeg_train = np.load(os.path.join(data_path, f'eeg_train_sub-{args.subject:02d}_trial_avg-{args.cv_split}.npy'), allow_pickle=True).item()['eeg_train'] # Shape: (9000, 160, 359)
 
 print('Shape of the EEG data (train):', eeg_train.shape)
 
@@ -58,12 +87,13 @@ print('Shape of the EEG data (train):', eeg_train.shape)
 _, fmri_test = load_fmri_roi_data(args.subject, args.hemisphere, args.roi, nc_threshold=0.2) # Shape: (9000, n_vertices), (515, n_vertices)
 print('Shape of the fMRI data (test):', fmri_test.shape)
 if fmri_test.shape[1]>0:
+    fmri_test_z = (fmri_test - fmri_test.mean(0)) / (fmri_test.std(0) + 1e-8) # z-score the fMRI test responses for correlation computation
 
     #=======================================================================
     # Loading the pre-trained EEG-to-fMRI encoder's weights (from phase 1)
     #=======================================================================
     phase_1_weights_path = f'/scratch/jeffreykatab/Projects/fusion/NSD/Encoding_Models/results/regression_weights/joint_eeg_feature_encoding/roi/phase_1/subject-{args.subject}'
-    phase_1_weights = np.load(os.path.join(phase_1_weights_path, f'{args.roi}_{args.hemisphere}_cv_split-even.npy'), allow_pickle=True).item()
+    phase_1_weights = np.load(os.path.join(phase_1_weights_path, f'{args.roi}_{args.hemisphere}_cv_split-{cv_dict[args.cv_split]}.npy'), allow_pickle=True).item()
     print("Loaded pre-trained EEG-to-fMRI encoder's weights")
 
     #====================================================================
@@ -84,7 +114,7 @@ if fmri_test.shape[1]>0:
     if os.path.isdir(correlations_save_dir) == False:
         os.makedirs(correlations_save_dir)
 
-    file_name = f'{args.roi}_{args.hemisphere}.npy'
+    file_name = f'{args.roi}_{args.hemisphere}_cv_split-{args.cv_split}.npy'
 
     #=========================================================================
     # Fitting linear models that predict the responses of a group of vertices
@@ -100,14 +130,18 @@ if fmri_test.shape[1]>0:
 
         # Fitting a new linear regression model using the trained predicted t-fMRI as target
         #encoding_model = RidgeCV(alphas=alphas, store_cv_results=True)
-        encoding_model = LinearRegression()
+        encoding_model = RidgeCV(alphas=alphas, alpha_per_target=True)
         encoding_model.fit(features_train, t_fmri)
 
         # Evaluating the encoding model and saving the correlation coefficients
-        pred_fmri = encoding_model.predict(features_test)
-        correlations.append([np.corrcoef(pred_fmri[:,i], fmri_test[:,i], dtype=np.float32)[0,1] for i in range(fmri_test.shape[1])])
-        np.save(os.path.join(correlations_save_dir, file_name), np.array(correlations, dtype=np.float32)) # Saving the correlations after each time point to avoid data loss in case of interruption
+        pred_t_fmri = features_test @ encoding_model.coef_.T + encoding_model.intercept_
+        pred_t_fmri_z = (pred_t_fmri - pred_t_fmri.mean(0)) / (pred_t_fmri.std(0) + 1e-8)
+        corrs = np.diag(pred_t_fmri_z.T @ fmri_test_z) / len(pred_t_fmri_z)
+        correlations.append(corrs)
     print(" Joint EEG-Feature Encoding Fusion complete!")
+    correlations = np.array(correlations, dtype=np.float32)
+    np.save(os.path.join(correlations_save_dir, file_name), correlations)
+    print(f"Correlations saved to: {os.path.join(correlations_save_dir, file_name)}, shape={correlations.shape}")
 
 else:
      print("No vertices above noise ceiling threshold found in this ROI. Terminating...")

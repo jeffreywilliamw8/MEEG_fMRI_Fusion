@@ -1,3 +1,8 @@
+"""
+This script aggregates the EEG-fMRI encoding fusion results from multiple splits for each subject and saves the combined results.
+The final files are cvertex-wise correlation time courses for each hemisphere, with the shape (359 time points, 163,842 vertices).
+"""
+
 import numpy as np
 import os
 import random

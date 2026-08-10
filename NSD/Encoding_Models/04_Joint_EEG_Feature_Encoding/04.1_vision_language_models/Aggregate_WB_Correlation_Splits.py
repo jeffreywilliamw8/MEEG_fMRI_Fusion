@@ -10,7 +10,7 @@ import argparse
 start_time = time.time()
 
 subject_list = [1,4,5,6,7,8]   # List of subjects to process
-dnn_types = ['vdnn', 'llm']
+dnn_types = ['vdnn', 'llm', 'both']
 
 for subject in tqdm(subject_list):
     

@@ -1,16 +1,12 @@
 import numpy as np
 import os
 import argparse
-from sklearn.metrics import pairwise_distances
-from tqdm import tqdm
 import h5py
 from berg import BERG
-from sklearn.linear_model import LinearRegression
+from sklearn.metrics import pairwise_distances
 import time
 
-# Start time
 start_time = time.time()
-
 seed = 8
 np.random.seed(seed)
 
@@ -21,52 +17,100 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--subject', type=int, default=1)
 parser.add_argument('--hemisphere', type=str, default='lh')
 parser.add_argument('--fmri_split', type=int, default=1)
-parser.add_argument('--n_neighbours', type=int, default=100) 
+parser.add_argument('--n_neighbours', type=int, default=100)
 args = parser.parse_args()
 
-print('>>> RSA Variance Partitioning: Vision vs. Language <<<')
+print('>>> RSA Variance Partitioning: Vision vs. Language (Vectorized, closed-form R^2) <<<')
 print('\nInput arguments:')
 for key, val in vars(args).items():
     print('{:16} {}'.format(key, val))
 
+
 def flatten_rdm(rdm):
-    return (rdm[np.triu_indices_from(rdm, k=1)]).astype(np.float32)  # k=1 excludes diagonal
+    return (rdm[np.triu_indices_from(rdm, k=1)]).astype(np.float32)
+
+
+def corr_1d_vs_1d(x, y):
+    xc = x - x.mean()
+    yc = y - y.mean()
+    return (xc @ yc) / (np.linalg.norm(xc) * np.linalg.norm(yc))
+
+
+def corr_1d_vs_2d(x, Y):
+    """Correlation between a single vector x (n_pairs,) and every row of Y (n_rows, n_pairs)."""
+    x_c = x - x.mean()
+    x_norm = np.linalg.norm(x_c)
+    Y_c = Y - Y.mean(axis=1, keepdims=True)
+    Y_norm = np.linalg.norm(Y_c, axis=1)
+    denom = Y_norm * x_norm
+    denom[denom == 0] = np.nan
+    return (Y_c @ x_c) / denom
+
+
+def resid_1d(y, x):
+    """OLS residual of y after regressing out x (both 1D, n_pairs,)."""
+    yc = y - y.mean()
+    xc = x - x.mean()
+    beta = (xc @ yc) / (xc @ xc)
+    return yc - beta * xc
+
+
+def resid_2d(Y, x):
+    """OLS residual of every row of Y (n_rows, n_pairs) after regressing out x (n_pairs,)."""
+    xc = x - x.mean()
+    xc_ss = xc @ xc
+    Y_c = Y - Y.mean(axis=1, keepdims=True)
+    beta = (Y_c @ xc) / xc_ss  # (n_rows,)
+    return Y_c - beta[:, None] * xc[None, :]
+
+
+def two_predictor_r2(r1, r2, r12):
+    """Closed-form R^2 for a 2-predictor OLS regression, given pairwise correlations."""
+    denom = 1 - r12 ** 2
+    return (r1 ** 2 + r2 ** 2 - 2 * r1 * r2 * r12) / denom
 
 
 # =============================================================================
 # 2. Load EEG Predictor Data and Compute Time-Resolved RDMs
 # =============================================================================
-data_path = '/scratch/jeffreykatab/Projects/fusion/NSD/prepared_data'
-eeg_test = np.load(os.path.join(data_path, f'eeg_test_sub-{args.subject:02d}.npy'), allow_pickle=True).item()['eeg_test'] # Shape: (515, 30, 160, 359)
-eeg_test = np.mean(eeg_test, axis=1) # Averaging across repeats -> (515, 160, 359)
-print('Shape of the EEG data (test):', eeg_test.shape)
-
-eeg_rdms = []
-for t in tqdm(range(eeg_test.shape[2]), desc='Computing EEG RDMs'):
-    rdm = pairwise_distances(eeg_test[:, :, t], metric='correlation')
-    eeg_rdms.append(flatten_rdm(rdm))
-eeg_rdms = np.array(eeg_rdms, dtype=np.float32) # Shape: (n_time_points, n_pairs)
+data_dir = '/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/correlation_rdms'
+eeg_rdms = np.load(os.path.join(data_dir, f"correlation_rdm_eeg_sub-{args.subject}.npy"))  # (n_time_points, n_pairs)
 print("Shape of the EEG RDMs: ", eeg_rdms.shape)
-del eeg_test
+n_time_points = eeg_rdms.shape[0]
 
 # =============================================================================
 # 3. Load Static Model Predictor Data (Vision DNN and LLM) and Compute RDMs
 # =============================================================================
-# Vision DNN
 vision_dir = '/scratch/jeffreykatab/Projects/fusion/NSD/Encoding_Models/stimulus_features/vision_models/vit_b_32'
 vision_test = np.load(os.path.join(vision_dir, f'fmri_sub-{args.subject:02d}_fmaps.npy'), allow_pickle=True).item()['fmaps_test']
 vision_rdm = flatten_rdm(pairwise_distances(vision_test, metric='cosine'))
 print("Shape of the Vision DNN RDM: ", vision_rdm.shape)
 del vision_test
 
-# LLM Language Model
 lang_dir = '/scratch/jeffreykatab/Projects/fusion/NSD/Encoding_Models/stimulus_features/llms'
 lang_test = np.load(os.path.join(lang_dir, f"llm_embeddings_sub-{args.subject:02d}.npy"), allow_pickle=True).item()['llm_embeddings_test']
 lang_rdm = flatten_rdm(pairwise_distances(lang_test, metric='cosine'))
 print("Shape of the LLM RDM: ", lang_rdm.shape)
 del lang_test
 
-combined_features_rdm = np.vstack((vision_rdm, lang_rdm)).T
+# =============================================================================
+# Precompute quantities that are CONSTANT across the entire script (previously
+# recomputed inside the vertex x timepoint double loop, ~2.8 million times)
+# =============================================================================
+r_vl = corr_1d_vs_1d(vision_rdm, lang_rdm)
+vision_minus_lang = resid_1d(vision_rdm, lang_rdm)
+lang_minus_vis = resid_1d(lang_rdm, vision_rdm)
+
+# =============================================================================
+# Precompute quantities that depend on TIMEPOINT ONLY (previously recomputed
+# once per vertex per timepoint -- now computed once per timepoint, vectorized
+# across all 359 timepoints simultaneously)
+# =============================================================================
+eeg_minus_lang = resid_2d(eeg_rdms, lang_rdm)   # (n_time, n_pairs)
+eeg_minus_vis = resid_2d(eeg_rdms, vision_rdm)  # (n_time, n_pairs)
+
+r_ve = corr_1d_vs_2d(vision_rdm, eeg_rdms)  # (n_time,) corr(vision, eeg(t))
+r_le = corr_1d_vs_2d(lang_rdm, eeg_rdms)    # (n_time,) corr(lang, eeg(t))
 
 # ==================================
 # fMRI Noise ceilings
@@ -74,16 +118,7 @@ combined_features_rdm = np.vstack((vision_rdm, lang_rdm)).T
 berg = BERG(berg_dir='/scratch/giffordale95/projects/brain-encoding-response-generator')
 metadata = berg.get_model_metadata('fmri-nsd_fsaverage-huze', subject=args.subject)
 wb_noise_ceilings = metadata['fmri'][f'{args.hemisphere}_ncsnr']
-wb_noise_ceilings = wb_noise_ceilings[7802*(args.fmri_split - 1):7802*args.fmri_split]
-
-# =============================================================================
-# 4. Variance Partitioning Analysis Loop
-# =============================================================================
-n_time_points = eeg_rdms.shape[0]
-
-
-
-print("Variance partitioning loop has started...")
+wb_noise_ceilings = wb_noise_ceilings[7802 * (args.fmri_split - 1):7802 * args.fmri_split]
 
 # =============================================================================
 # Loading the Precomputed fMRI RDMs
@@ -92,107 +127,109 @@ fmri_h5_file = os.path.join(
     f'/scratch/jeffreykatab/Projects/fusion/NSD/RSA/fmri_searchlight_rdms/n_neighbours-{args.n_neighbours}',
     f'fmri_sub-{args.subject}_hemi-{args.hemisphere}_rdms.h5'
 )
-# Open the file in read mode
 with h5py.File(fmri_h5_file, 'r') as f:
-    # Point to the dataset (this doesn't load it into memory yet)
     dset = f['rdms']
-    fmri_rdms = dset[7802*(args.fmri_split - 1):7802*args.fmri_split, :]
-    n_vertices = fmri_rdms.shape[0]
-    # Initialize storage dictionaries 
-    results = {
-        'unique_vision': np.zeros((n_time_points, n_vertices), dtype=np.float32),
-        'unique_language': np.zeros((n_time_points, n_vertices), dtype=np.float32),
-        'shared_vision_language': np.zeros((n_time_points, n_vertices), dtype=np.float32)
-    }
+    fmri_rdms = dset[7802 * (args.fmri_split - 1):7802 * args.fmri_split, :]
 
+n_vertices = fmri_rdms.shape[0]
+print(f"Loaded fMRI RDMs for {n_vertices} vertices.")
 
+results = {
+    'unique_vision': np.zeros((n_time_points, n_vertices), dtype=np.float32),
+    'unique_language': np.zeros((n_time_points, n_vertices), dtype=np.float32),
+    'shared_vision_language': np.zeros((n_time_points, n_vertices), dtype=np.float32),
+}
 
-    # =================================================================================================
-    # Commonality Analysis (variance partitioning) for each vertex (neighbourhood): compute shared
-    # variance explained by the EEG and features RDMs with respect to the fMRI RDM at that vertex
-    # ==================================================================================================
-    shared_variances = np.zeros((eeg_rdms.shape[0], n_vertices), dtype=np.float32)
-    print("Commonality analysis loop has started...")
+valid_mask = wb_noise_ceilings >= 0.2
+valid_idx = np.where(valid_mask)[0]
+n_valid = len(valid_idx)
+print(f"{n_valid} / {n_vertices} vertices pass the noise-ceiling criterion.")
 
-    for vertex in tqdm(range(n_vertices)):
-        if wb_noise_ceilings[vertex]<0.2: # Skip the computations if the vertex doesn't pass the noise ceiling criterion
-            continue
-        else:
-            fmri_rdm = fmri_rdms[vertex, :]
-            
-            for t in [51, 77, 102, 128, 153, 179, 205, 230, 256, 281, 307, 333, 358]:
-                eeg_rdm = eeg_rdms[t]
+if n_valid > 0:
+    fmri_valid = fmri_rdms[valid_idx, :]  # (n_valid, n_pairs)
 
+    # =============================================================================
+    # Precompute quantities that depend on VERTEX ONLY
+    # =============================================================================
+    fmri_minus_lang = resid_2d(fmri_valid, lang_rdm)   # (n_valid, n_pairs)
+    fmri_minus_vis = resid_2d(fmri_valid, vision_rdm)  # (n_valid, n_pairs)
 
-                # -------------------------------------------------------------------------
-                # STAGE 1: Controlling for vision and language DNN features
-                # -------------------------------------------------------------------------
+    r_vision = corr_1d_vs_2d(vision_rdm, fmri_valid)  # (n_valid,)
+    r_lang = corr_1d_vs_2d(lang_rdm, fmri_valid)      # (n_valid,)
 
-                # 1. Controlling for language features
-                eeg_minus_lang_rdm = eeg_rdm - LinearRegression().fit(lang_rdm.reshape(-1, 1), eeg_rdm).predict(lang_rdm.reshape(-1, 1)) # EEG RDM stripped of linear relationship with language features
-                vision_minus_lang_rdm = vision_rdm - LinearRegression().fit(lang_rdm.reshape(-1, 1), vision_rdm).predict(lang_rdm.reshape(-1, 1)) # Vision RDM stripped of linear relationship with language features
-                fmri_minus_lang_rdm = fmri_rdm - LinearRegression().fit(lang_rdm.reshape(-1, 1), fmri_rdm).predict(lang_rdm.reshape(-1, 1)) # fMRI RDM stripped of linear relationship with language features
+    vision_r2 = corr_1d_vs_2d(vision_minus_lang, fmri_minus_lang) ** 2   # (n_valid,)
+    language_r2 = corr_1d_vs_2d(lang_minus_vis, fmri_minus_vis) ** 2     # (n_valid,)
+    features_r2 = two_predictor_r2(r_vision, r_lang, r_vl)               # (n_valid,)
 
-                # 2. Controlling for vision features
-                eeg_minus_vis_rdm = eeg_rdm - LinearRegression().fit(vision_rdm.reshape(-1, 1), eeg_rdm).predict(vision_rdm.reshape(-1, 1)) # EEG RDM stripped of linear relationship with language features
-                lang_minus_vis_rdm = lang_rdm - LinearRegression().fit(vision_rdm.reshape(-1, 1), lang_rdm).predict(vision_rdm.reshape(-1, 1)) # Language RDM stripped of linear relationship with language features
-                fmri_minus_vis_rdm = fmri_rdm - LinearRegression().fit(vision_rdm.reshape(-1, 1), fmri_rdm).predict(vision_rdm.reshape(-1, 1)) # fMRI RDM stripped of linear relationship with language features
+    # =============================================================================
+    # Quantities that depend on BOTH vertex and timepoint: each is now exactly
+    # ONE big matrix multiply across the full (n_time x n_valid) grid.
+    # =============================================================================
+    def corr_2d_vs_2d(A, B):
+        """corr(A[i], B[j]) for all i,j. A: (n_a, n_pairs), B: (n_b, n_pairs) -> (n_a, n_b)."""
+        A_c = A - A.mean(axis=1, keepdims=True)
+        B_c = B - B.mean(axis=1, keepdims=True)
+        A_norm = np.linalg.norm(A_c, axis=1)
+        B_norm = np.linalg.norm(B_c, axis=1)
+        denom = np.outer(A_norm, B_norm)
+        denom[denom == 0] = np.nan
+        return (A_c @ B_c.T) / denom
 
-                # 3. Variance uniquely shared with vision features
-                vision_model = LinearRegression().fit(vision_minus_lang_rdm.reshape(-1, 1), fmri_minus_lang_rdm)
-                vision_r2 = vision_model.score(vision_minus_lang_rdm.reshape(-1, 1), fmri_minus_lang_rdm)
-                
-                eeg_model = LinearRegression().fit(eeg_minus_lang_rdm.reshape(-1, 1), fmri_minus_lang_rdm)
-                eeg_r2 = eeg_model.score(eeg_minus_lang_rdm.reshape(-1, 1), fmri_minus_lang_rdm)
-                
-                vision_eeg_model = LinearRegression().fit(np.vstack((vision_minus_lang_rdm, eeg_minus_lang_rdm)).T, fmri_minus_lang_rdm)
-                vision_eeg_r2 = vision_eeg_model.score(np.vstack((vision_minus_lang_rdm, eeg_minus_lang_rdm)).T, fmri_minus_lang_rdm)
+    eeg_r2_lang = corr_2d_vs_2d(eeg_minus_lang, fmri_minus_lang) ** 2  # (n_time, n_valid)
+    eeg_r2_vis = corr_2d_vs_2d(eeg_minus_vis, fmri_minus_vis) ** 2     # (n_time, n_valid)
+    eeg_r2_raw = corr_2d_vs_2d(eeg_rdms, fmri_valid) ** 2              # (n_time, n_valid)
 
-                results['unique_vision'][t, vertex] = vision_r2 + eeg_r2 - vision_eeg_r2
+    # Recover signed correlations (needed for the cross term in the 2-predictor formula)
+    r_vision_minus_lang = corr_1d_vs_2d(vision_minus_lang, fmri_minus_lang)  # (n_valid,) signed
+    r_lang_minus_vis = corr_1d_vs_2d(lang_minus_vis, fmri_minus_vis)        # (n_valid,) signed
+    r_eeg_minus_lang = corr_2d_vs_2d(eeg_minus_lang, fmri_minus_lang)        # (n_time, n_valid) signed
+    r_eeg_minus_vis = corr_2d_vs_2d(eeg_minus_vis, fmri_minus_vis)           # (n_time, n_valid) signed
 
-                # 4. Variance uniquely shared with language features
+    # r12 for unique_vision block: corr(vision_minus_lang, eeg_minus_lang(t)) -- depends on t only
+    r12_vision_eeg = corr_1d_vs_2d(vision_minus_lang, eeg_minus_lang)  # (n_time,)
+    # r12 for unique_language block: corr(lang_minus_vis, eeg_minus_vis(t)) -- depends on t only
+    r12_lang_eeg = corr_1d_vs_2d(lang_minus_vis, eeg_minus_vis)  # (n_time,)
 
-                language_model = LinearRegression().fit(lang_minus_vis_rdm.reshape(-1, 1), fmri_minus_vis_rdm)
-                language_r2 = language_model.score(lang_minus_vis_rdm.reshape(-1, 1), fmri_minus_vis_rdm)
+    vision_eeg_r2 = two_predictor_r2(
+        r_vision_minus_lang[None, :], r_eeg_minus_lang, r12_vision_eeg[:, None]
+    )  # (n_time, n_valid)
+    language_eeg_r2 = two_predictor_r2(
+        r_lang_minus_vis[None, :], r_eeg_minus_vis, r12_lang_eeg[:, None]
+    )  # (n_time, n_valid)
 
-                eeg_model = LinearRegression().fit(eeg_minus_vis_rdm.reshape(-1, 1), fmri_minus_vis_rdm)
-                eeg_r2 = eeg_model.score(eeg_minus_vis_rdm.reshape(-1, 1), fmri_minus_vis_rdm)
+    unique_vision = vision_r2[None, :] + eeg_r2_lang - vision_eeg_r2
+    unique_language = language_r2[None, :] + eeg_r2_vis - language_eeg_r2
 
-                language_eeg_model = LinearRegression().fit(np.vstack((lang_minus_vis_rdm, eeg_minus_vis_rdm)).T, fmri_minus_vis_rdm)
-                language_eeg_r2 = language_eeg_model.score(np.vstack((lang_minus_vis_rdm, eeg_minus_vis_rdm)).T, fmri_minus_vis_rdm)
+    # --- shared_vision_language: needs the general 3-predictor (vision, lang, eeg(t)) formula ---
+    shared_vision_language = np.zeros((n_time_points, n_valid), dtype=np.float32)
+    for t in range(n_time_points):
+        Rxx = np.array([
+            [1.0, r_vl, r_ve[t]],
+            [r_vl, 1.0, r_le[t]],
+            [r_ve[t], r_le[t], 1.0],
+        ])
+        Rxx_inv = np.linalg.inv(Rxx)
+        r_e_signed = corr_1d_vs_2d(eeg_rdms[t], fmri_valid)  # (n_valid,) signed, cheap (one matvec)
+        r_vec = np.stack([r_vision, r_lang, r_e_signed], axis=1)  # (n_valid, 3)
+        features_eeg_r2_t = np.einsum('vi,ij,vj->v', r_vec, Rxx_inv, r_vec)
+        shared_vision_language[t] = features_r2 + eeg_r2_raw[t] - features_eeg_r2_t
 
-                results['unique_language'][t, vertex] = language_r2 + eeg_r2 - language_eeg_r2
-
-                # -----------------------------------------------------------------------------
-                # 3. Computing jointly shared variances i.e variance explained by vision and language features taken together
-                # ----------------------------------------------------------------------------
-
-                features_model = LinearRegression().fit(combined_features_rdm, fmri_rdm)
-                features_r2 = features_model.score(combined_features_rdm, fmri_rdm)
-
-                eeg_model = LinearRegression().fit(eeg_rdm.reshape(-1, 1), fmri_rdm)
-                eeg_r2 = eeg_model.score(eeg_rdm.reshape(-1, 1), fmri_rdm)
-
-                features_eeg_model = LinearRegression().fit(np.vstack((vision_rdm, lang_rdm, eeg_rdm)).T, fmri_rdm)
-                features_eeg_r2 = features_eeg_model.score(np.vstack((vision_rdm, lang_rdm, eeg_rdm)).T, fmri_rdm)
-
-                results['shared_vision_language'][t, vertex] = features_r2 + eeg_r2 - features_eeg_r2
-
-
+    results['unique_vision'][:, valid_idx] = unique_vision.astype(np.float32)
+    results['unique_language'][:, valid_idx] = unique_language.astype(np.float32)
+    results['shared_vision_language'][:, valid_idx] = shared_vision_language.astype(np.float32)
 
 print("Variance partitioning analysis complete!")
 
 # =============================================================================
 # 5. Saving Results
 # =============================================================================
-save_dir = f'/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/variance_partitioning/wb/subject-{args.subject}/hemisphere-{args.hemisphere}'
+save_dir = f'/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/variance_partitioning/eeg_rdm_metric-correlation/wb/subject-{args.subject}/hemisphere-{args.hemisphere}'
 os.makedirs(save_dir, exist_ok=True)
 
 file_name = f'fmri_split-{args.fmri_split}.npy'
 np.save(os.path.join(save_dir, file_name), results)
 print(f"Results successfully saved to: {os.path.join(save_dir, file_name)}")
 
-# End time
 execution_time = time.time() - start_time
 print("Execution complete!")
 print(f"Execution time: {execution_time:.2f} seconds.")

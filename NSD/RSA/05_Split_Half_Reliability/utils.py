@@ -3,6 +3,7 @@ import h5py
 import numpy as np
 from scipy import stats
 from statsmodels.stats.multitest import multipletests
+from sklearn.linear_model import RidgeCV
 from scipy.ndimage import label
 from berg import BERG
 
@@ -54,7 +55,6 @@ def load_fmri_roi_data(subject, hemisphere, roi, nc_threshold=0.2):
     del roi_mask, nc_mask
     return fmri_train, fmri_test
 
-
 def load_fmri_roi_data2(subject, roi, nc_threshold=0.2):
     """
     Loads fMRI data for a given ROI across BOTH hemispheres and any sub-ROIs,
@@ -66,7 +66,7 @@ def load_fmri_roi_data2(subject, roi, nc_threshold=0.2):
     - roi_groups: dict, mappings of composite regions to atomic lists
     - nc_threshold: float, noise ceiling filtration cutoff
     """
-    # 1. Determine the target sub-ROIs to load via structural dictionary lookup
+    # 1. Determine the target sub-ROIs to load via your structural dictionary lookup
     roi_groups = {
     'V1': ['V1v', 'V1d'],
     'V2': ['V2v', 'V2d'],
@@ -123,7 +123,6 @@ def load_fmri_roi_data2(subject, roi, nc_threshold=0.2):
     return combined_train, combined_test
 
 
-
 def get_roi_noise_ceiling_corr(roi, subject):
     """
     Computes the average correlation noise ceiling for a given macro-ROI 
@@ -141,19 +140,11 @@ def get_roi_noise_ceiling_corr(roi, subject):
         'V1': ['V1v', 'V1d'],
         'V2': ['V2v', 'V2d'],
         'V3': ['V3v', 'V3d'],
-        'V1-3': ['V1v', 'V1d', 'V2v', 'V2d', 'V3v', 'V3d'],
         'hV4': ['hV4'],
         'FFA': ['FFA-1', 'FFA-2'],
         'OFA': ['OFA'],
         'EBA': ['EBA'],
-        'PPA': ['PPA'],
-        'ventral': ['ventral'],
-        'lateral': ['lateral'],
-        'parietal': ['parietal'],
-        'midventral': ['midventral'],
-        'midlateral': ['midlateral'],
-        'midparietal': ['midparietal'],
-        'early': ['early']
+        'PPA': ['PPA']
     }
     
     if roi not in roi_groups:
@@ -188,7 +179,6 @@ def get_roi_noise_ceiling_corr(roi, subject):
                     # Ensure negative SNR estimations from background noise are clipped to 0
                     vertex_snrs = np.clip(vertex_snrs, 0.0, None)
                     
-                    # Compute the variance noise ceiling: R^2 = snr / (snr + 1)
                     # Taking the square root gives us the correlation noise ceiling (r) directly
                     vertex_corr_ceilings = np.sqrt(vertex_snrs)
                     
@@ -228,13 +218,13 @@ def get_significance_mask(correlation_data, alpha=0.05, method='fdr_bh'):
     Performs Fisher z-transform, 1-sample t-test, and Multiple Comparison Correction.
     
     Parameters:
-    - correlation_data: array (n_subjects, n_timepoints)
+    - correlation_data: array (n_subjects, n_timepoints or n_vertices)
     - alpha: significance level
     - method: 'fdr_bh' for Benjamini-Hochberg, 'bonferroni' for the strict way.
     """
     # 1. Fisher z-transform (handles the r-distribution skew)
     # Note: We use np.clip to avoid infinity if r is exactly 1.0
-    z_data = np.arctanh(np.clip(correlation_data, -0.999, 0.999))
+    z_data = np.arctanh(np.clip(correlation_data, -0.9999, 0.9999))
     
     # 2. Perform 1-sample t-test across subjects at each timepoint
     t_stats, p_values = stats.ttest_1samp(z_data, 0, axis=0)
@@ -245,8 +235,30 @@ def get_significance_mask(correlation_data, alpha=0.05, method='fdr_bh'):
     
     return pvals_corrected < alpha
 
+def get_significance_mask2(correlation_data, alpha=0.05, method='fdr_bh'):
+    """
+    Performs Fisher z-transform, 1-sample t-test, and Multiple Comparison Correction.
+    
+    Parameters:
+    - correlation_data: array (n_subjects, n_timepoints or n_vertices)
+    - alpha: significance level
+    - method: 'fdr_bh' for Benjamini-Hochberg, 'bonferroni' for the strict way.
+    """
+    # 1. Fisher z-transform (handles the r-distribution skew)
+    # Note: We use np.clip to avoid infinity if r is exactly 1.0
+    z_data = np.arctanh(np.clip(correlation_data, -0.9999, 0.9999))
+    
+    # 2. Perform 1-sample t-test across subjects at each timepoint
+    t_stats, p_values = stats.ttest_1samp(correlation_data, 0, axis=0)
+    
+    # 3. Correct for Multiple Comparisons
+    # reject is a boolean mask, pvals_corrected are the adjusted p-values
+    reject, pvals_corrected, _, _ = multipletests(p_values, alpha=alpha, method=method)
+    
+    return pvals_corrected < alpha
 
-def sign_permutation_cluster_test(corr_timecourses, n_permutations=10000, p_thresh=0.05, alpha=0.05):
+
+def sign_permutation_cluster_test(corr_timecourses, n_permutations=10000, p_thresh=0.1, alpha=0.1):
     """
     Perform a sign-permutation cluster test across subjects' correlation time courses.
 
@@ -359,6 +371,45 @@ def sign_permutation_cluster_test(corr_timecourses, n_permutations=10000, p_thre
         "lower_thr": lower_thr
     }
 
+
 def flatten_rdm(rdm):
     return rdm[np.triu_indices_from(rdm, k=1)]  # k=1 excludes diagonal
+
+def single_feature_rdm(array):
+    n_samples = array.shape
+    # Fast vectorized calculation of squared Euclidean distances for a single feature vector
+    # (array - array.T)^2
+    diff = array - array.T
+    return np.square(diff, dtype=np.float32)
+
+def get_single_feature_rdms(data):
+    n_samples, n_features = data.shape
+    n_cells = int(n_samples * (n_samples - 1) / 2)
+    feature_specific_rdms = np.empty((n_cells, n_features), dtype=np.float32)
+
+    for j in range(n_features):
+        x = data[:, j].reshape(-1, 1)
+        d = flatten_rdm(single_feature_rdm(x))
+        feature_specific_rdms[:, j] = d
+
+    return feature_specific_rdms
+
+def feature_reweighting_model(feature_specific_rdms, target_rdm, alphas=np.logspace(-6, 5, 30)):
+    model = RidgeCV(alphas=alphas)
+    model.fit(feature_specific_rdms, target_rdm)
+    regression_weights = {}
+    regression_weights['coef_'] = []
+    regression_weights['intercept_'] = []
+    return model
+
+def clip_rdm_values(rdm, metric):
+    range_dict = {
+        'correlation': (0.0, 2.0),
+        'cosine': (0.0, 1.0),
+        'euclidean': (0.0, np.inf)
+    }
+    if metric in range_dict:
+        return np.clip(rdm, *range_dict[metric], dtype=np.float32)
+    else:
+        raise ValueError(f"Unknown target RDM metric: {metric}")
 

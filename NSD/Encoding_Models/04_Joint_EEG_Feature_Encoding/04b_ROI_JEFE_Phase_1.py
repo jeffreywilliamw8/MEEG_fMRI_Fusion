@@ -1,3 +1,22 @@
+"""
+This script implements the first phase of the joint EEG-feature encoding fusion model for a specific ROI.
+The first phase consists of training encoding models to predict fMRI responses from EEG responses at each
+time point, using only EEG data averaged across either the even or odd half of total repeats. After training,
+the model weights are saved for later use in the second phase of the joint EEG-feature encoding fusion 
+
+Parameters
+----------
+subject : int
+    The number of the NSD participant pair for which the encoding fusion is performed.
+hemisphere : str
+    The hemisphere of the brain to analyze ('lh' for left hemisphere, 'rh' for right hemisphere).
+roi : str
+    The region of interest (ROI) to analyze. The fMRI data is filtered to include only vertices within the specified ROI and above 0.2 NCSNR threshold.
+cv_split : str
+    The half of repeats to use for training the EEG-to-fMRI encoding model ('even' or 'odd'). The other half will be used for testing in phase 2 of the joint EEG-feature encoding fusion analysis.
+
+"""
+
 import numpy as np
 import os
 import random
@@ -37,7 +56,7 @@ for key, val in vars(args).items():
 # Loading the EEG responses 
 #======================================================
 data_path = '/scratch/jeffreykatab/Projects/fusion/NSD/prepared_data'
-eeg_train = np.load(os.path.join(data_path, f'eeg_train_sub-{args.subject:02d}_trial_avg-{args.cv_split}.npy'), allow_pickle=True).item()['eeg_train'].astype(np.float32) # Shape: (9000, 160, 359)
+eeg_train = np.load(os.path.join(data_path, f'eeg_train_sub-{args.subject:02d}_trial_avg-{args.cv_split}.npy'), allow_pickle=True).item()['eeg_train'].astype(np.float32) # Shape: (~9000, 160, 359)
 print('Shape of the EEG data (train):', eeg_train.shape)
 # Get the time points
 times = get_eeg_times()
@@ -62,7 +81,7 @@ if fmri_train.shape[1]>0:
     # Fitting a linear model that predicts the responses of a group of vertices
     # using all EEG channels at each time point
     #============================================================================
-    alphas = np.logspace(-6, 3, 20) # List of alphas for Ridge regression
+    alphas = np.logspace(-6, 10, 20) # List of alphas for Ridge regression
     weights = {}
     weights['coef_'] = []
     weights['intercept_'] = []

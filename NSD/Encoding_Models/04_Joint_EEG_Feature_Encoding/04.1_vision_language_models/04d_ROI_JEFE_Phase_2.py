@@ -1,3 +1,28 @@
+"""
+This script implements the second phase of the Stimulus feature encoding fusion/Joint EEG-Feature Encoding Fusion (JEFE) for
+the a specific Region of Interest (ROI), using either vision DNN features, language model features, or both. The second phase consists of using the pre-trained
+EEG-to-fMRI encoding models from phase 1 to predict fMRI responses from EEG data in the held-out half of repeats,
+and then training a second model to predict the predicted fMRI responses from DNN features.
+The correlation coefficients between the predicted fMRI responses and the actual fMRI responses are computed and saved for each time point.
+The encoding models' weights are also saved for the partial correlation analysis.
+
+Parameters
+----------
+subject : int
+    The number of the NSD participant pair for which the encoding fusion is performed.
+hemisphere : str
+    The hemisphere of the brain to analyze ('lh' for left hemisphere, 'rh' for right hemisphere).
+roi : str
+    The region of interest (ROI) to analyze (e.g., 'V1v', 'V1d', etc.).
+cv_split : str
+    The half of repeats to use for training the EEG-to-fMRI encoding model ('even' or 'odd'). The other half will be used for testing in phase 2 of the joint EEG-feature encoding fusion analysis.
+dnn_type : str
+    The type of DNN features to use for the joint encoding fusion: "vdnn" for vision DNN features, "llm" for language model features, or "both" for using both types of features (via concatenation).
+n_jobs : int
+    Number of parallel workers used across time points (-1 = all available cores).
+"""
+
+
 import numpy as np
 import os
 import random
@@ -5,7 +30,6 @@ import argparse
 from sklearn.linear_model import LinearRegression, RidgeCV
 import tqdm
 from utils import load_fmri_roi_data
-import h5py
 import time
 
 # Start time
@@ -53,6 +77,7 @@ print('Shape of the EEG data (train):', eeg_train.shape)
 _, fmri_test = load_fmri_roi_data(args.subject, args.hemisphere, args.roi, nc_threshold=0.2) # Shape: (9000, n_vertices), (515, n_vertices)
 print('Shape of the fMRI data (test):', fmri_test.shape)
 if fmri_test.shape[1]>0:
+    fmri_test_z = (fmri_test - fmri_test.mean(0)) / (fmri_test.std(0) + 1e-8) # z-score the fMRI test responses for correlation computation
 
     #=======================================================================
     # Loading the pre-trained EEG-to-fMRI encoder's weights (from phase 1)
@@ -95,9 +120,9 @@ if fmri_test.shape[1]>0:
     #========================================================================= 
     file_name = f'{args.roi}_{args.hemisphere}_cv_split-{args.cv_split}.npy'
 
-    scores_save_dir = f'/scratch/jeffreykatab/Projects/fusion/NSD/Encoding_Models/results/r2_scores/jefe_phase_2/roi/vision_language_models/dnn_type-{args.dnn_type}/subject-{args.subject}'
-    if os.path.isdir(scores_save_dir) == False:
-        os.makedirs(scores_save_dir)
+    corrs_save_dir = f'/scratch/jeffreykatab/Projects/fusion/NSD/Encoding_Models/results/correlations/jefe_phase_2/roi/vision_language_models/dnn_type-{args.dnn_type}/subject-{args.subject}'
+    if os.path.isdir(corrs_save_dir) == False:
+        os.makedirs(corrs_save_dir)
 
 
     weights_save_dir = f'/scratch/jeffreykatab/Projects/fusion/NSD/Encoding_Models/results/regression_weights/jefe_phase_2/roi/dnn_type-{args.dnn_type}/subject-{args.subject}'
@@ -113,31 +138,35 @@ if fmri_test.shape[1]>0:
     encoding_models_weights = {}
     encoding_models_weights['coef_'] = []
     encoding_models_weights['intercept_'] = []
-    scores = []
+    correlations = []
     alphas = np.logspace(-6, 3, 20) # List of alphas for Ridge regression
     print("Starting Joint EEG-Feature Encoding Fusion...")
     for t in tqdm.tqdm(range(eeg_train.shape[2])):
-        # Loading the pre-trained EEG-to-fMRI encoder's weights for the current time point
-        eeg2fmri = LinearRegression()
-        # Loading the linear regression weights
-        eeg2fmri.coef_ = phase_1_weights['coef_'][t]
-        eeg2fmri.intercept_ = phase_1_weights['intercept_'][t]
-        t_fmri = eeg2fmri.predict(eeg_train[:,:,t])
+        # Reconstructing the pre-trained phase-1 EEG-to-fMRI encoder for this time point
+        t_fmri = eeg_train[:, :, t] @ phase_1_weights['coef_'][t].T + phase_1_weights['intercept_'][t].intercept_ # predict t-fMRI using matrix multiplication: faster than model.predict
 
-        # Fitting a new linear regression model using the trained predicted t-fMRI as target
-        encoding_model = RidgeCV(alphas=alphas, store_cv_results=True)
+        # Fitting a new linear regression model using the predicted t-fMRI as target
+        encoding_model = RidgeCV(alphas=alphas, cv=None, alpha_per_target=True)
         encoding_model.fit(features_train, t_fmri)
-        # Store the encoding fusion model weights (will be used later for variance partitioning)
-        encoding_models_weights['coef_'].append(encoding_model.coef_.astype(np.float32))
-        encoding_models_weights['intercept_'].append(encoding_model.intercept_.astype(np.float32))
-        np.save(os.path.join(weights_save_dir, file_name), encoding_models_weights)
 
-        # Evaluating the encoding model and saving the correlation coefficients
-        #pred_fmri = encoding_model.predict(features_test)
-        scores.append(encoding_model.score(features_test, fmri_test))
+        coef_ = encoding_model.coef_.astype(np.float32)
+        intercept_ = encoding_model.intercept_.astype(np.float32)
 
-        np.save(os.path.join(scores_save_dir, file_name), np.array(scores, dtype=np.float32))
+        # Evaluating the encoding model and computing the correlation coefficients
+        pred_t_fmri = features_test @ encoding_model.coef_.T + encoding_model.intercept_ # predict t-fMRI using matrix multiplication: faster than model.predict
+        pred_t_fmri_z = (pred_t_fmri - pred_t_fmri.mean(0)) / (pred_t_fmri.std(0) + 1e-8)
+        corrs = np.diag(pred_t_fmri_z.T @ fmri_test_z) / len(pred_t_fmri_z) # compute correlation between predicted and actual fMRI responses for each vertex using matrix multiplication: faster than np.corrcoef
+
+        correlations.append(corrs)
+        encoding_models_weights['coef_'].append(coef_)
+        encoding_models_weights['intercept_'].append(intercept_)
     print("Joint EEG-Feature Encoding Fusion complete!")
+
+    # Saving the correlation coefficients and regression weights to disk
+    np.save(os.path.join(corrs_save_dir, file_name), np.array(correlations, dtype=np.float32))
+    np.save(os.path.join(weights_save_dir, file_name), encoding_models_weights)
+    print(f"Correlations saved to: {os.path.join(corrs_save_dir, file_name)}, shape={np.array(correlations).shape}")
+    print(f"Regression weights saved to: {os.path.join(weights_save_dir, file_name)}")
 
 else:
      print("No vertices above noise ceiling threshold found in this ROI. Terminating...")
