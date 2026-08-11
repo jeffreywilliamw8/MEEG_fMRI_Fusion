@@ -31,7 +31,7 @@ roi_groups = {
 # Ordered labels and explicit high-contrast colors for each integrated group
 area_labels = ['V1', 'V4', 'ventral']
 area_colors = [
-    "#480758",  # V1-3 (Deep Purple)
+    "#480758",  # V1 (Deep Purple)
     "#63a1cc",  # hV4 (Steel Blue)
     "#8fd744",  # ventral (Light Green)
 ]
@@ -39,10 +39,8 @@ area_colors = [
 
 n_bootstraps = 10000
 N_NEIGHBOURS = 100
-# Pathing
-# f'/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/correlations/univariate_rsa/subject-{args.subject}'
-base_results_dir = f'/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/correlations/searchlight_fusion/n_neighbours-{N_NEIGHBOURS}/aggregated_results'
-#base_results_dir = '/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/correlations/univariate_rsa'
+
+base_results_dir = f'/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/correlations/searchlight_fusion/eeg_rdm_metric-pearsonr/n_neighbours-{N_NEIGHBOURS}/aggregated_results'
 PLOTS_DIR = '/scratch/jeffreykatab/Projects/fusion/NSD/RSA/plots'
 os.makedirs(PLOTS_DIR, exist_ok=True)
 
@@ -118,8 +116,8 @@ for area in area_labels:
                     continue
 
 
-        #subject_area_corrs.append(np.mean(sub_roi_corrs, axis=1)) # Averaging across vertices
-        subject_area_corrs.append(sub_roi_corrs[:, 8])  # Selecting vertex 8
+        subject_area_corrs.append(np.mean(sub_roi_corrs, axis=1)) # Averaging across vertices
+        #subject_area_corrs.append(sub_roi_corrs[:, 8])  # Selecting vertex 8
 
     area_data_list.append(np.array(subject_area_corrs))
 
@@ -127,14 +125,8 @@ for area in area_labels:
 def ci95_across_subjects(area_data):
     """
     95% confidence interval of the across-subject mean at each timepoint, via the
-    standard normal-theory formula (t-critical value * SEM). This is the CI used for
-    the shaded ribbon around each curve -- it describes uncertainty in the mean
-    CORRELATION VALUE at each timepoint.
+    standard normal-theory formula (t-critical value * SEM). 
 
-    This is a distinct quantity from the bootstrap CI computed below for peak LATENCY
-    (the timepoint at which the curve peaks): that one is a CI over a discrete time
-    index, obtained by resampling subjects and re-finding the argmax each time, and has
-    nothing to do with the ribbon plotted here.
     """
     n_subs = area_data.shape[0]
     s_err = sem(area_data, axis=0)
@@ -148,12 +140,12 @@ def plot_roi_results(data_list, title, filename):
     plt.figure(figsize=(14, 8))
     ax = plt.gca()
 
-    # Calculate y-limit based on data (using the 95% CI half-width, not SEM)
+    # Calculate y-limit based on data 
     all_means = [np.mean(d, axis=0) for d in data_list]
     all_cis = [ci95_across_subjects(d) for d in data_list]
     global_max_y = max([np.max(m + c) for m, c in zip(all_means, all_cis)])
 
-    # Row spacing for the staggered significance lanes below y=0 (one lane per area)
+    # Row spacing for the significance bars below y=0 (one lane per area)
     row_gap = global_max_y * 0.05
 
     print("\n>>> Peak latency (95% CI, bootstrap over subjects) per ROI <<<")
@@ -161,7 +153,7 @@ def plot_roi_results(data_list, title, filename):
     for i, area_data in enumerate(data_list):
         n_subs = len(subject_list)
         m_group = np.mean(area_data, axis=0)
-        ci_err = ci95_across_subjects(area_data)  # ribbon CI: uncertainty in the correlation value itself
+        ci_err = ci95_across_subjects(area_data)  #  CI: uncertainty in the correlation value itself
         color = area_colors[i]
 
         # 1. Cluster Permutation Test
@@ -170,18 +162,13 @@ def plot_roi_results(data_list, title, filename):
         for cluster_idx, _, _ in cluster_results['significant_clusters']:
             sig_mask[cluster_idx] = True
 
-        # Significant time window: first and last significant timepoint, pooled across all
-        # significant clusters (not a per-cluster breakdown) -- matching how significant windows
-        # are reported elsewhere in this project (e.g. "significant between ~50ms and 420ms").
         if np.any(sig_mask):
             sig_times = times[sig_mask]
             print(f"{area_labels[i]}: significant from {sig_times.min():.0f}ms to {sig_times.max():.0f}ms")
         else:
             print(f"{area_labels[i]}: no significant time points")
 
-        # 2. Bootstrap Peak Latency CI: uncertainty in the peak's TIME INDEX, obtained by
-        # resampling subjects and re-finding the argmax each time -- not to be confused
-        # with the ribbon's CI above, which is about the correlation value, not its timing.
+        # 2. Bootstrap Peak Latency CI
         boot_peaks = []
         for _ in range(n_bootstraps):
             res_idx = np.random.choice(n_subs, size=n_subs, replace=True)
@@ -203,7 +190,7 @@ def plot_roi_results(data_list, title, filename):
         ax.scatter(obs_peak, peak_val, color=color, s=600, edgecolors='white', zorder=5)
         ax.errorbar(obs_peak, peak_val, xerr=[[obs_peak-low], [high-obs_peak]], fmt='none', ecolor='k', elinewidth=1, capsize=3, zorder=4)
 
-        # Significance Dots -- staggered lanes BELOW the y=0 line (one lane per area)
+        # Significance Dots bars below the y=0 line (one bar per ROI)
         sig_y = -row_gap * (i + 1)
         if np.any(sig_mask):
             ax.scatter(times[sig_mask], [sig_y] * np.sum(sig_mask),
@@ -233,6 +220,6 @@ def plot_roi_results(data_list, title, filename):
     print(f"Plot saved to: {save_path}")
 
 # Run the plot
-plot_roi_results(area_data_list, "RSA Correlations", "roi_rsa_fusion_1vtx.svg")
+plot_roi_results(area_data_list, "RSA Correlations", "roi_rsa_fusion.svg")
 
 print(f"Execution complete! Total Time: {time.time() - start_time:.2f}s")

@@ -47,6 +47,7 @@ np.random.seed(seed)
 parser = argparse.ArgumentParser()
 parser.add_argument('--subject', type=int, default=1)
 parser.add_argument('--hemisphere', type=str, default='lh')
+parser.add_argument('--eeg_rdm_metric', type=str, default='pearsonr', choices=['pearsonr', 'crossnobis', 'decoding_accuracy'])
 parser.add_argument('--time_point', type=int, default=0)
 parser.add_argument('--n_neighbours', type=int, default=100)
 parser.add_argument('--chunk_size', type=int, default=1974, help='Number of vertices per joblib worker task (which makes for 83 chunks for 163842 vertices).')
@@ -61,8 +62,8 @@ for key, val in vars(args).items():
 # =============================================================================
 # 1. Loading the EEG RDM for this timepoint only
 # =============================================================================
-data_dir = '/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/correlation_rdms'
-eeg_rdm = np.load(os.path.join(data_dir, f"correlation_rdm_eeg_sub-{args.subject}.npy"))[args.time_point]  # (n_pairs,)
+data_dir = '/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/eeg_rdms'
+eeg_rdm = np.load(os.path.join(data_dir, f"{args.eeg_rdm_metric}_rdm_eeg_sub-{args.subject}.npy"))[args.time_point]  # (n_pairs,)
 n_pairs = eeg_rdm.shape[0]
 
 # Rank-transform the EEG side once for this job (it's reused, unranked, by every vertex/chunk below)
@@ -128,7 +129,7 @@ for start, end, chunk_data in results:
 # =============================================================================
 # 4. Saving Results
 # =============================================================================
-save_dir = f'/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/correlations/searchlight_fusion/eeg_rdm_metric-correlation/n_neighbours-{args.n_neighbours}/subject-{args.subject}/{args.hemisphere}_hemisphere'
+save_dir = f'/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/correlations/searchlight_fusion/eeg_rdm_metric-{args.eeg_rdm_metric}/n_neighbours-{args.n_neighbours}/subject-{args.subject}/{args.hemisphere}_hemisphere'
 os.makedirs(save_dir, exist_ok=True)
 
 file_name = f'time_point_{args.time_point:04d}.npy'

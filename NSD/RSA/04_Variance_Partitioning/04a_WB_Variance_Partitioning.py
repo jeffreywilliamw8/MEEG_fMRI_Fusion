@@ -1,3 +1,14 @@
+"""
+This script performs whole-brain variance partitioning analysis of VDNN and LLM features on EEG and fMRI data.
+For computational efficiency, we use closed-form R2 calculations, matrix multiplications, and perform the
+analysis only for vertices that pass the NCSNR threshold. The analysis is performed for a specific subject, hemisphere, and fMRI split.
+
+"""
+
+
+
+
+
 import numpy as np
 import os
 import argparse
@@ -18,6 +29,7 @@ parser.add_argument('--subject', type=int, default=1)
 parser.add_argument('--hemisphere', type=str, default='lh')
 parser.add_argument('--fmri_split', type=int, default=1)
 parser.add_argument('--n_neighbours', type=int, default=100)
+parser.add_argument('--eeg_rdm_metric', type=str, default='pearsonr', choices=['pearsonr', 'crossnobis', 'decoding_accuracy'])
 args = parser.parse_args()
 
 print('>>> RSA Variance Partitioning: Vision vs. Language (Vectorized, closed-form R^2) <<<')
@@ -73,8 +85,8 @@ def two_predictor_r2(r1, r2, r12):
 # =============================================================================
 # 2. Load EEG Predictor Data and Compute Time-Resolved RDMs
 # =============================================================================
-data_dir = '/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/correlation_rdms'
-eeg_rdms = np.load(os.path.join(data_dir, f"correlation_rdm_eeg_sub-{args.subject}.npy"))  # (n_time_points, n_pairs)
+data_dir = '/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/eeg_rdms'
+eeg_rdms = np.load(os.path.join(data_dir, f"{args.eeg_rdm_metric}_rdm_eeg_sub-{args.subject}.npy"))
 print("Shape of the EEG RDMs: ", eeg_rdms.shape)
 n_time_points = eeg_rdms.shape[0]
 
@@ -223,7 +235,7 @@ print("Variance partitioning analysis complete!")
 # =============================================================================
 # 5. Saving Results
 # =============================================================================
-save_dir = f'/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/variance_partitioning/eeg_rdm_metric-correlation/wb/subject-{args.subject}/hemisphere-{args.hemisphere}'
+save_dir = f'/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/variance_partitioning/eeg_rdm_metric-{args.eeg_rdm_metric}/wb/subject-{args.subject}/hemisphere-{args.hemisphere}'
 os.makedirs(save_dir, exist_ok=True)
 
 file_name = f'fmri_split-{args.fmri_split}.npy'
