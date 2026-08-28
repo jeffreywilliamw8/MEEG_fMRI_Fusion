@@ -46,8 +46,8 @@ args = parser.parse_args()
 # =============================================================================
 # Loading the weights and fMRI data
 # =============================================================================
-vision_weights_file = os.path.join(f'/scratch/jeffreykatab/Projects/fusion/NSD/Encoding_Models/results/regression_weights/jefe_phase_2/roi/dnn_type-vdnn/subject-{args.subject}', f'{args.roi}_{args.hemisphere}_cv_split-odd.npy')
-language_weights_file = os.path.join(f'/scratch/jeffreykatab/Projects/fusion/NSD/Encoding_Models/results/regression_weights/jefe_phase_2/roi/dnn_type-llm/subject-{args.subject}', f'{args.roi}_{args.hemisphere}_cv_split-odd.npy')
+vision_weights_file = os.path.join(f'/scratch/jeffreykatab/Projects/fusion/NSD/Encoding_Models/results/regression_weights/stimulus_feature_encoding_fusion/phase_2/vision_language_models/roi/dnn_type-vdnn/subject-{args.subject}', f'{args.roi}_{args.hemisphere}_cv_split-{args.cv_split}.npy')
+language_weights_file = os.path.join(f'/scratch/jeffreykatab/Projects/fusion/NSD/Encoding_Models/results/regression_weights/stimulus_feature_encoding_fusion/phase_2/vision_language_models/roi/dnn_type-llm/subject-{args.subject}' f'{args.roi}_{args.hemisphere}_cv_split-{args.cv_split}.npy')
 
 vision_weights = np.load(vision_weights_file, allow_pickle=True).item()
 language_weights = np.load(language_weights_file, allow_pickle=True).item()

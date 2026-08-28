@@ -1,16 +1,17 @@
 """
 This script aggregates the ROI-wise EEG-fMRI encoding fusion results, computes statistics, and generates plots for each ROI.
-The whole-brain plots are generated in a separate script, together with RSA whoole-brain results, to generate a single movie for both methods.
+The whole-brain plots are generated in a separate script, together with RSA whole-brain results, to generate a single movie for both methods.
+The script plots both particpant-averaged and individual-particiapnt results
 """
-
 import numpy as np
 import matplotlib.pyplot as plt
 import os
 from tqdm import tqdm
 from scipy.stats import sem, t as t_dist
-from utils import sign_permutation_cluster_test, get_eeg_times, get_roi_noise_ceiling_corr
-from berg import BERG
+from utils import sign_permutation_cluster_test, get_eeg_times
 import time
+from berg import BERG
+
 
 # Start time
 start_time = time.time()
@@ -18,36 +19,35 @@ start_time = time.time()
 # --- Configuration ---
 subject_list = [1, 4, 5, 6, 7, 8]
 
-# Define the grouping: list of sub-ROIs for each integrated ROI group (e.g. V1 = V1v + V1d)
+# Define the grouping: Area -> list of sub-ROI filenames
+# Define the grouping hierarchy: Group Label -> List of sub-ROI file names
 roi_groups = {
     'V1': ['V1v', 'V1d'],
-    'V4': ['hV4'],
+    'hV4': ['hV4'],
     'ventral': ['ventral']
 }
 
-# Ordered labels and explicit high-contrast colors for each integrated group
-area_labels = ['V1', 'V4', 'ventral']
+area_labels = ['V1', 'hV4', 'ventral']
 
 area_colors = [
     "#480758",  # V1 (Deep Purple)
-    "#63a1cc",  # V4 (Steel Blue)
-    "#8fd744",  # ventral (Light Green)
+    "#468fc3",  # hV4 (Steel Blue)
+    "#ea8e16" ,  # ventral (Orange)
 ]
 
-n_bootstraps = 10000
 
-# Whole-brain noise-ceiling threshold -- same convention used by the RSA / other whole-brain
-# scripts in this project (vertices below this ncsnr are excluded from the per-area average).
+
+n_bootstraps = 10000
 NCSNR_THRESHOLD = 0.2
 N_VERT_PER_HEMI = 163842
 
-# Pathing -- whole-brain per-vertex correlation time courses (same source the RSA whole-brain
-# scripts read from), NOT the pre-averaged per-ROI files used previously.
+# Pathing -- whole-brain per-vertex correlation time courses 
 base_results_dir = '/scratch/jeffreykatab/Projects/fusion/NSD/Encoding_Models/results/correlations/encoding_fusion/whole_brain'
-PLOTS_DIR = '/scratch/jeffreykatab/Code/Encoding_Models/NSD/plots'
+PLOTS_DIR = '/scratch/jeffreykatab/Projects/fusion/NSD/plots'
 os.makedirs(PLOTS_DIR, exist_ok=True)
 
-# --- get EEG times, in ms, for plotting ---
+
+# --- Time Vector  ---
 times = get_eeg_times()
 
 # --- Per-subject, per-sub-ROI vertex masks (ROI + noise-ceiling) ---
@@ -106,15 +106,10 @@ for area in area_labels:
 
     area_data_list.append(np.array(subject_area_corrs))
 
-
 def ci95_across_subjects(area_data):
     """
     95% confidence interval of the across-subject mean at each timepoint, via the
-    standard normal-theory formula (t-critical value * SEM). 
-
-    This is a distinct quantity from the bootstrap CI computed further below for peak
-    LATENCY (the timepoint at which the curve peaks): that one is a CI over a discrete
-    time index, obtained by resampling subjects and re-finding the argmax each time.
+    standard normal formula (t-critical value * SEM).
     """
     n_subs = area_data.shape[0]
     s_err = sem(area_data, axis=0)
@@ -141,7 +136,7 @@ def plot_roi_results(data_list, title, filename):
     for i, area_data in enumerate(data_list):
         n_subs = len(subject_list)
         m_group = np.mean(area_data, axis=0)
-        ci_err = ci95_across_subjects(area_data)
+        ci_err = ci95_across_subjects(area_data)  # ribbon CI: uncertainty in the correlation value itself
         color = area_colors[i]
 
         # 1. Cluster Permutation Test
@@ -151,13 +146,15 @@ def plot_roi_results(data_list, title, filename):
             sig_mask[cluster_idx] = True
 
         # Significant time window: first and last significant timepoint, pooled across all
+        # significant clusters
         if np.any(sig_mask):
             sig_times = times[sig_mask]
             print(f"{area_labels[i]}: significant from {sig_times.min():.0f} ms to {sig_times.max():.0f} ms")
         else:
             print(f"{area_labels[i]}: no significant time points")
 
-        # 2. Bootstrap Peak Latency CI:
+        # 2. Bootstrap Peak Latency CI
+
         boot_peaks = []
         for _ in range(n_bootstraps):
             res_idx = np.random.choice(n_subs, size=n_subs, replace=True)
@@ -177,10 +174,10 @@ def plot_roi_results(data_list, title, filename):
         # Peak Marker
         peak_val = np.max(m_group)
         ax.scatter(obs_peak, peak_val, color=color, s=600, edgecolors='white', zorder=5)
-        ax.errorbar(obs_peak, peak_val, xerr=[[obs_peak-low], [high-obs_peak]],
-                    fmt='none', ecolor='k', elinewidth=1, capsize=3, zorder=4)
+        #ax.errorbar(obs_peak, peak_val, xerr=[[obs_peak-low], [high-obs_peak]],
+        #            fmt='none', ecolor='k', elinewidth=1, capsize=3, zorder=4)
 
-        # Significance bars -- bars below the y=0 line (one bar per ROI)
+        # Significance bars -- staggered lanes BELOW the y=0 line (one lane per area)
         sig_y = -row_gap * (i + 1)
         if np.any(sig_mask):
             ax.scatter(times[sig_mask], [sig_y] * np.sum(sig_mask),
@@ -188,16 +185,16 @@ def plot_roi_results(data_list, title, filename):
 
 
     # Styling
-    #ax.set_title(f'{title}', fontweight='bold', fontsize=26, pad=40)
-    #ax.set_xlabel('Time (ms)', fontsize=28)
-    #ax.set_ylabel("Pearson's r", fontsize=28)
+    ax.set_title(f'{title}', fontweight='bold', fontsize=28, pad=40)
+    ax.set_xlabel('Time (ms)', fontsize=28)
+    ax.set_ylabel("Pearson's r", fontsize=28)
     ax.axvline(0, color='black', lw=3, linestyle='--', alpha=0.5)
     ax.axhline(0, color='black', lw=3, alpha=0.2)
     ax.set_xlim(-100, 600)
     bottom_limit = -row_gap * (len(area_labels) + 1.5)
     ax.set_ylim(bottom=bottom_limit, top=0.3)
 
-    #ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), frameon=False, fontsize=18)
+    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), frameon=False, fontsize=18)
 
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
@@ -210,7 +207,50 @@ def plot_roi_results(data_list, title, filename):
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     print(f"Plot saved to: {save_path}")
 
-# Run the plot
-plot_roi_results(area_data_list, "ROI-wise Encoding Correlations", "roi_enc_eeg2fmri.svg")
+
+# =============================================================================
+# Individual-subject plot
+# =============================================================================
+def plot_roi_results_individual_subjects(data_list, filename, n_cols=3):
+    n_subs = len(subject_list)
+    n_rows = int(np.ceil(n_subs / n_cols))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(7 * n_cols, 5 * n_rows), sharex=False)
+    axes = np.array(axes).reshape(-1)
+
+    print("\n>>> Peak latency per ROI, per subject (individual-subject plot) <<<")
+    for s_idx, subject in enumerate(subject_list):
+        ax = axes[s_idx]
+        print(f"Participant-{subject}:")
+        for a_idx, area_data in enumerate(data_list):
+            if s_idx >= len(area_data):
+                continue
+            curve = area_data[s_idx, :]
+            obs_peak = times[np.argmax(curve)]
+            print(f"  {area_labels[a_idx]}: peak latency = {obs_peak:.0f}ms")
+            leg_text = f"{area_labels[a_idx]}: {obs_peak:.0f}ms"
+            ax.plot(times, curve, color=area_colors[a_idx], lw=2.5, label=leg_text, zorder=3)
+
+        ax.set_title(f'Sub-{subject}', fontweight='bold', fontsize=16, pad=10)
+        ax.axvline(0, color='black', lw=1.5, linestyle='--', alpha=0.5)
+        ax.axhline(0, color='black', lw=1.5, alpha=0.2)
+        ax.set_xlim(-100, 600)
+        ax.legend(loc='upper right', frameon=False, fontsize=11)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.tick_params(axis='both', labelsize=11)
+
+    for extra_ax in axes[n_subs:]:
+        extra_ax.axis('off')
+
+    plt.tight_layout()
+    save_path = os.path.join(PLOTS_DIR, filename)
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Plot saved to: {save_path}")
+
+
+# Run the plots
+plot_roi_results(area_data_list, "Encoding Fusion", "roi_encoding_fusion.svg")
+plot_roi_results_individual_subjects(area_data_list, "roi_encoding_fusion_individual_participants.svg")
 
 print(f"Execution complete! Total Time: {time.time() - start_time:.2f} seconds.")
