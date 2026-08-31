@@ -48,7 +48,7 @@ parser.add_argument('--data_dir', type=str,
 parser.add_argument('--save_dir', type=str,
                      default='/scratch/jeffreykatab/Projects/fusion/THINGS/Encoding_Models/results/correlations/whole_brain_encoding_fusion')
 parser.add_argument('--n_jobs', type=int, default=-1)
-parser.add_argument('--tmax', type=float, default=0.6)
+parser.add_argument('--tmax', type=float, default=0.8)
 args = parser.parse_args()
 
 print('>>> MEG-fMRI Encoding Fusion (Whole-Brain) <<<')
