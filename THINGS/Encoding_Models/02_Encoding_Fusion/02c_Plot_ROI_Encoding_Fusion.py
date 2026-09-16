@@ -1,9 +1,12 @@
 """
-Plots ROI correlation time courses for the THINGS MEG-fMRI encoding fusion,
-reading the per-ROI correlations.npy files written by
-THINGS_ROI_Encoding_Fusion.py. Group figure (mean across fMRI subjects with
-SEM ribbon) plus an individual-subject companion figure. No significance
-stats -- only 3 fMRI subjects.
+Plots ROI correlation time courses for the THINGS MEG-fMRI encoding fusion, restricted to V1,
+V4 (hV4), and IT. Data loading -- raw meg2fmri_fusion correlation time courses, per subject,
+masked to each area's ROI vertices above the noise-ceiling threshold and averaged across them --
+is adapted verbatim from an earlier diagnostic script. The plotting logic follows the canonical
+group/individual-subject ROI plot style used elsewhere in this project, with one change: the
+group shaded_area is a 95% percentile-bootstrap CI across subjects (not SEM), and peak latency gets
+its own bootstrap CI reported in the legend -- matching the NSD/BMD ROI plots. No significance
+stats here (only 3 fMRI subjects).
 """
 
 import os
@@ -11,91 +14,117 @@ import time
 
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.stats import sem
-from utils import get_meg_times
 
 start_time = time.time()
 
 # --- Configuration ---
-fmri_subjects = [1, 2, 3]
-area_labels = ['V1', 'hV4', 'IT']
-area_colors = ["#480758", "#468fc3", "#ea8e16"]
+subject_list = ['01', '02', '03']
+area_labels = ['V1', 'V4', 'IT']
+areas = [['V1'], ['hV4'], ['IT']]  # metadata ROI key(s) underlying each displayed area label
+area_colors = ["#480758", "#468fc3", "#ea8e16"]  # V1, V4, IT
 
-TMAX = 0.8
+N_BOOTSTRAPS = 10000
+NCSNR_THRESHOLD = 20.0
+target_len = 141 # 141 time points -> -100 to 600ms
 
-base_results_dir = ('/scratch/jeffreykatab/Projects/fusion/THINGS/Encoding_Models/results/correlations/roi_encoding_fusion')
-data_dir = '/scratch/jeffreykatab/Projects/fusion/THINGS/prepared_data'
+# --- Paths ---
+BASE_DIR = '/home/jeffreykatab/Projects/fusion/THINGS/Encoding_Models'
+METADATA_DIR = '/scratch/jeffreykatab/Code/Encoding_Models/THINGS/fMRI/prepared'
+meg_metadata_dir = '/scratch/jeffreykatab/Code/Encoding_Models/THINGS/MEG/prepared'
 PLOTS_DIR = '/scratch/jeffreykatab/Projects/fusion/THINGS/plots'
 os.makedirs(PLOTS_DIR, exist_ok=True)
 
+#  f'/home/jeffreykatab/Projects/fusion/THINGS/Encoding_Models/correlations/meg2fmri_fusion/sub-{subject}_correlation_time_courses.npy'
 
-times = 1000*np.load(os.path.join(data_dir, 'meg_times.npy')) # pre-saved file of MEG times from -100 to +800 ms
+# --- Time Vector ---
+meg_metadata_file = os.path.join(meg_metadata_dir, 'meg_P1_metadata.npy')
+meg_metadata = np.load(meg_metadata_file, allow_pickle=True).item()
+times = 1000 * meg_metadata['meg']['times']
+times = times[:target_len]
 XLIM = (-100, times.max())
 
-# --- Data Aggregation ---
-# area_data_list[i]: (n_subjects, n_time) -- voxel-averaged correlations for ROI i
-area_data_list = []
-
+# =============================================================================
+# Data loading 
+# =============================================================================
 print(">>> Aggregating ROI Data <<<")
 
-for roi in area_labels:
-    subject_roi_corrs = []
+area_data_list = []
+for area_rois in areas:
+    subject_matrices = []
+    for subject in subject_list:
+        metadata = np.load(f'{METADATA_DIR}/fmri_{subject}_metadata.npy', allow_pickle=True).item()
+        data = np.load(f'{BASE_DIR}/correlations/meg2fmri_fusion/sub-{subject}_correlation_time_courses.npy')[:target_len, :]
 
-    for subject in fmri_subjects:
-        path = os.path.join(base_results_dir, f'fmri_sub-{subject:02d}', f'{roi}.npy', 'correlations.npy')
-        if not os.path.exists(path):
-            print(f"Missing: {path}")
-            continue
+        roi_averages = []
+        for roi_name in area_rois:
+            idx = metadata['roi'][roi_name]
+            nc = metadata['encoding_model']['noise_ceiling_testset'][idx]
+            valid = np.where(nc > NCSNR_THRESHOLD)[0]
+            roi_averages.append(np.mean(data[:, idx][:, valid], axis=1))
 
-        data = np.load(path)  # (n_time, n_voxels)
-        print(f"Loaded fMRI sub-{subject:02d}, ROI {roi}: shape = {data.shape}")
-        subject_roi_corrs.append(np.mean(data, axis=1))  # average across voxels -> (n_time,)
-
-    area_data_list.append(np.array(subject_roi_corrs))
-
-
-def sem_across_subjects(area_data):
-    # Standard error of the across-subject mean at each timepoint.
-    return sem(area_data, axis=0)
+        subject_matrices.append(np.mean(roi_averages, axis=0))
+    area_data_list.append(np.stack(subject_matrices))
 
 
-# --- Plotting ---
+def ci95_across_subjects(area_data, n_bootstraps=N_BOOTSTRAPS):
+    """
+    95% confidence interval of the across-subject mean at each timepoint, via percentile
+    bootstrap: resample subjects with replacement n_bootstraps times, recompute the mean
+    across the resampled subjects at each timepoint, then take the 2.5th/97.5th percentiles
+    of that bootstrap distribution.
+    """
+    n_subs = area_data.shape[0]
+    boot_means = np.zeros((n_bootstraps, area_data.shape[1]))
+    for i in range(n_bootstraps):
+        res_idx = np.random.choice(n_subs, size=n_subs, replace=True)
+        boot_means[i] = np.mean(area_data[res_idx], axis=0)
+    low, high = np.percentile(boot_means, [2.5, 97.5], axis=0)
+    return low, high
+
+
+# =============================================================================
+# Plotting -- canonical group figure (bootstrap 95% CI shaded_area + peak marker with bootstrap
+# peak-latency CI in the legend, no significance stats) plus individual-subject companion figure
+# =============================================================================
 def plot_roi_results(data_list, title, filename):
     plt.figure(figsize=(14, 8))
     ax = plt.gca()
 
-    all_means = [np.mean(d, axis=0) for d in data_list if len(d) > 0]
-    all_sems = [sem_across_subjects(d) for d in data_list if len(d) > 0]
-    global_max_y = max([np.max(m + s) for m, s in zip(all_means, all_sems)])
-    global_min_y = min([np.min(m - s) for m, s in zip(all_means, all_sems)])
+    all_cis = [ci95_across_subjects(d) for d in data_list]  # each: (low, high) arrays
+    global_max_y = max(np.max(high) for _, high in all_cis)
+    global_min_y = min(np.min(low) for low, _ in all_cis)
 
-    print("\n>>> Peak latency per ROI <<<")
+    print("\n>>> Peak latency (95% CI, bootstrap over subjects) per ROI <<<")
 
     for i, area_data in enumerate(data_list):
-        if len(area_data) == 0:
-            continue
+        n_subs = area_data.shape[0]
         m_group = np.mean(area_data, axis=0)
-        sem_err = sem_across_subjects(area_data)
-        # err = sem(all_area_data[i], axis=0)
+        ci_low, ci_high = all_cis[i]
         color = area_colors[i]
 
+        # Bootstrap peak latency CI
+        boot_peaks = []
+        for _ in range(N_BOOTSTRAPS):
+            res_idx = np.random.choice(n_subs, size=n_subs, replace=True)
+            boot_peaks.append(times[np.argmax(np.mean(area_data[res_idx], axis=0))])
+        low, high = np.percentile(boot_peaks, [2.5, 97.5])
         obs_peak = times[np.argmax(m_group)]
-        print(f"{area_labels[i]}: peak latency = {obs_peak:.0f} ms")
 
-        ax.plot(times, m_group, color=color, lw=12.0,
-                label=f"{area_labels[i]}: {obs_peak:.0f} ms", zorder=3)
-        ax.fill_between(times, m_group - sem_err, m_group + sem_err,
-                        color=color, alpha=0.20, zorder=2)
+        print(f"{area_labels[i]}: peak latency = {obs_peak:.0f} ms [95% CI: {low:.0f}-{high:.0f} ms]")
+
+        leg_text = f"{area_labels[i]}: {obs_peak:.0f} ms [{low:.0f}-{high:.0f} ms]"
+        ax.plot(times, m_group, color=color, lw=6.0, label=leg_text, zorder=3)
+        ax.fill_between(times, ci_low, ci_high, color=color, alpha=0.20, zorder=2)
         ax.scatter(obs_peak, np.max(m_group), color=color, s=600, edgecolors='white', zorder=5)
 
-    ax.set_title(f'{title}', fontweight='bold', fontsize=28, pad=40)
+    ax.set_title('MEG-fMRI Encoding Fusion (ROI)', fontweight='bold', fontsize=28, pad=40)
     ax.set_xlabel('Time (ms)', fontsize=28)
     ax.set_ylabel("Pearson's r", fontsize=28)
     ax.axvline(0, color='black', lw=3, linestyle='--', alpha=0.5)
     ax.axhline(0, color='black', lw=3, alpha=0.2)
     ax.set_xlim(*XLIM)
     ax.set_ylim(bottom=min(global_min_y - 0.02, -0.02), top=global_max_y * 1.15)
-    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), frameon=False, fontsize=18)
+    #ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), frameon=False, fontsize=18)
 
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
@@ -111,17 +140,17 @@ def plot_roi_results(data_list, title, filename):
 
 
 def plot_roi_results_individual_subjects(data_list, filename, n_cols=3):
-    n_subs = len(fmri_subjects)
+    n_subs = len(subject_list)
     n_rows = int(np.ceil(n_subs / n_cols))
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(7 * n_cols, 5 * n_rows), sharex=False)
     axes = np.array(axes).reshape(-1)
 
     print("\n>>> Peak latency per ROI, per subject (individual-subject plot) <<<")
-    for s_idx, subject in enumerate(fmri_subjects):
+    for s_idx, subject in enumerate(subject_list):
         ax = axes[s_idx]
-        print(f"fMRI sub-{subject:02d}:")
+        print(f"fMRI sub-{subject}:")
         for a_idx, area_data in enumerate(data_list):
-            if len(area_data) == 0 or s_idx >= len(area_data):
+            if s_idx >= len(area_data):
                 continue
             curve = area_data[s_idx, :]
             obs_peak = times[np.argmax(curve)]
@@ -129,7 +158,7 @@ def plot_roi_results_individual_subjects(data_list, filename, n_cols=3):
             ax.plot(times, curve, color=area_colors[a_idx], lw=2.5,
                     label=f"{area_labels[a_idx]}: {obs_peak:.0f}ms", zorder=3)
 
-        ax.set_title(f'fMRI sub-{subject:02d}', fontweight='bold', fontsize=16, pad=10)
+        ax.set_title(f'fMRI sub-{subject}', fontweight='bold', fontsize=16, pad=10)
         ax.axvline(0, color='black', lw=1.5, linestyle='--', alpha=0.5)
         ax.axhline(0, color='black', lw=1.5, alpha=0.2)
         ax.set_xlim(*XLIM)
@@ -148,9 +177,7 @@ def plot_roi_results_individual_subjects(data_list, filename, n_cols=3):
     print(f"Plot saved to: {save_path}")
 
 
-plot_roi_results(area_data_list, "MEG-fMRI Encoding Fusion (ROI)", "roi_encoding_fusion.svg")
-plot_roi_results_individual_subjects(area_data_list, "roi_encoding_fusion_individual_subjects.svg")
+plot_roi_results(area_data_list, "MEG-fMRI Encoding Fusion (ROI)", "roi_meg2fmri_encoding_fusion.svg")
+plot_roi_results_individual_subjects(area_data_list, "roi_meg2fmri_encoding_fusion_individual_subjects.svg")
 
 print(f"\nExecution complete! Total Time: {time.time() - start_time:.2f} seconds.")
-
-

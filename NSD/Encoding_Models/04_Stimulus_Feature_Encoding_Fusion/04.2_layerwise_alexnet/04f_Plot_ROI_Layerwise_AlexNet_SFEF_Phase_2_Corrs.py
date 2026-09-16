@@ -11,7 +11,6 @@ import matplotlib.pyplot as plt
 import os
 import matplotlib.cm as cm
 from tqdm import tqdm
-from scipy.stats import sem
 from utils import sign_permutation_cluster_test, get_eeg_times
 import time
 
@@ -46,10 +45,7 @@ n_layers = len(alexnet_layers)
 # Width of the bins used to determine the best performing layer over time.
 BIN_WIDTH_MS = 20
 
-# Layer-depth colormap: dark purple (shallow) -> blue -> green (deep). Replaces plasma,
-# whose bright yellow endpoint (deepest layer) was nearly invisible on a white background.
-# Every stop here (purple, blue, green) stays readable on white, and the blue midpoint
-# doubles as a nod to the project's EEG-blue convention.
+# Layer-depth colormap:
 layer_colors = [
     "#0C076E",  # Conv1
     "#5121A0",  # Conv2
@@ -395,6 +391,8 @@ def render_figure(save_name):
 render_figure("roi_enc_layerwise_alexnet_fusion.svg")
 
 
+from matplotlib.lines import Line2D
+
 # =============================================================================
 # Plotting per-subject results
 # =============================================================================
@@ -403,6 +401,29 @@ def render_individual_subjects_figure(save_name):
     n_subs = len(subject_list)
     fig, axes = plt.subplots(n_subs, len(area_labels), figsize=(9 * len(area_labels), 5 * n_subs), sharex=False)
     axes = np.array(axes).reshape(n_subs, len(area_labels))
+
+    post_stim_mask = times >= 0
+
+    # Determine the best overall layer per ROI -- the layer whose GROUP-AVERAGE curve (mean
+    # across subjects) has the highest mean correlation across post-stimulus timepoints. This is
+    # a single, group-level choice per ROI, computed once and shared across every subject's
+    # subplot for that ROI (not re-chosen per subject).
+    best_layer_per_area = {}
+    for area in area_labels:
+        layer_stats = layer_stats_cache[area]
+        best_layer, best_score = None, -np.inf
+        for layer in layer_stats:
+            area_data = data[layer][area]
+            if area_data is None:
+                continue
+            group_mean_curve = np.mean(area_data, axis=0)
+            score = np.mean(group_mean_curve[post_stim_mask])
+            if score > best_score:
+                best_layer, best_score = layer, score
+        best_layer_per_area[area] = best_layer
+        if best_layer is not None:
+            print(f"{area}: best overall layer = {layer_stats[best_layer]['display']} "
+                  f"(mean post-stimulus r = {best_score:.4f})")
 
     for s_idx, subject in enumerate(subject_list):
         for a_idx, area in enumerate(area_labels):
@@ -414,25 +435,50 @@ def render_individual_subjects_figure(save_name):
                 if area_data is None or s_idx >= area_data.shape[0]:
                     continue
                 curve = area_data[s_idx, :]
-                ax.plot(times, curve, color=s['color'], lw=2.0, label=s['display'], zorder=3)
+                ax.plot(times, curve, color=s['color'], lw=3.0, label=s['display'], zorder=3)
+
+            # Peak marker: this subject's OWN curve, evaluated on the ROI's best overall layer.
+            best_layer = best_layer_per_area[area]
+            if best_layer is not None:
+                best_area_data = data[best_layer][area]
+                if best_area_data is not None and s_idx < best_area_data.shape[0]:
+                    curve = best_area_data[s_idx, :]
+                    obs_peak = times[np.argmax(curve)]
+                    peak_val = np.max(curve)
+                    best_color = layer_stats[best_layer]['color']
+                    ax.scatter(obs_peak, peak_val, color=best_color,
+                               s=180, edgecolor='white', linewidth=1.5, zorder=4)
+
+                    # Per-subplot legend: single colored dash + this subject's peak latency for
+                    # the ROI's best overall layer. Color alone ties it to the layer -- add the
+                    # layer-color key manually in Inkscape (or use the full legend below, for
+                    # the one subplot that still has it, as a reference).
+                    peak_handle = Line2D([0], [0], color=best_color, lw=8)
+                    peak_legend = ax.legend(
+                        handles=[peak_handle], labels=[f'{obs_peak:.0f}ms'],
+                        loc='upper right', frameon=False, fontsize=18,
+                        handlelength=1.5, borderpad=0.2, handletextpad=0.5
+                    )
+                    ax.add_artist(peak_legend)  # preserved even if another legend is set below
 
             if a_idx == 0:
                 ax.set_ylabel(f"Participant {subject}", fontweight='bold', fontsize=16)
             if s_idx == 0:
                 ax.set_title(area, fontweight='bold', fontsize=20, pad=15)
 
-            ax.axvline(0, color='black', lw=1.5, linestyle='--', alpha=0.5)
-            ax.axhline(0, color='black', lw=1.5, alpha=0.2)
+            ax.axvline(0, color='black', lw=3, linestyle='--', alpha=0.5)
+            ax.axhline(0, color='black', lw=3, alpha=0.2)
             xticks = [-100, 0, 200, 400, 600]
             ax.set_xticks(ticks=xticks)
+            ax.set_yticks([0.00, 0.10, 0.20, 0.30])
+            ax.set_ylim(top=0.35)
             ax.set_xlim(-100, 600)
 
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
-            ax.tick_params(axis='both', labelsize=11)
-
-            if s_idx == 0 and a_idx == len(area_labels) - 1:
-                ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), frameon=False, fontsize=12)
+            ax.set_xlabel('')
+            ax.set_ylabel('')
+            ax.tick_params(axis='both', labelsize=11, labelbottom=False, labelleft=False, width=3.0, length=12.0)
 
     plt.tight_layout()
     save_path = os.path.join(PLOTS_DIR, save_name)
@@ -442,6 +488,4 @@ def render_individual_subjects_figure(save_name):
 
 
 render_individual_subjects_figure("roi_enc_layerwise_alexnet_fusion_individual_participants.svg")
-
-
 print(f"\nTotal Execution time: {time.time() - start_time:.2f} seconds.")

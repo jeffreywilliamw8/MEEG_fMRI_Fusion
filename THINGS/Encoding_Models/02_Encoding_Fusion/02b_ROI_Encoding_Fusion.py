@@ -1,5 +1,5 @@
 """
-ROI-restricted MEG-to-fMRI encoding fusion. Same modeling pipeline as
+ROI-level MEG-to-fMRI encoding fusion. Same modeling pipeline as
 THINGS_Whole_Brain_Encoding_Fusion.py, but instead of sweeping --fmri_split over
 np.array_split chunks of the whole brain, it takes an ROI name (e.g. 'V1')
 and an ncsnr (noise ceiling) threshold, and fits/predicts/correlates only

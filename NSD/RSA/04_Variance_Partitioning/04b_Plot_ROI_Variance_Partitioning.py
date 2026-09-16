@@ -1,15 +1,7 @@
-"""
-This script plots the variance partitioning results for specific ROIs (V1, V4, ventral) across time, 
-comparing the contributions of vision DNN features (VDNN) and language model features (LLM) to the fMRI responses. 
-It aggregates data across subjects, computes statistics including confidence intervals and significance testing, and generates plots for each ROI.
-"""
-
-
 import numpy as np
 import matplotlib.pyplot as plt
 import os
 from tqdm import tqdm
-from scipy.stats import sem, t as t_dist
 from utils import sign_permutation_cluster_test, get_eeg_times
 from berg import BERG
 import time
@@ -118,15 +110,20 @@ for part in partitions.keys():
         aggregated_data[part][roi_idx] = np.array(aggregated_data[part][roi_idx])
 
 
-def ci95_across_subjects(area_data):
+def ci95_across_subjects(area_data, n_bootstraps=10000):
     """
-    95% confidence interval of the across-subject mean at each timepoint, via the
-    standard normal-theory formula (t-critical value * SEM).
+    95% confidence interval of the across-subject mean at each timepoint, via percentile
+    bootstrap: resample subjects with replacement n_bootstraps times, recompute the mean
+    across the resampled subjects at each timepoint, then take the 2.5th/97.5th percentiles
+    of that bootstrap distribution.
     """
     n_subs = area_data.shape[0]
-    s_err = sem(area_data, axis=0)
-    t_crit = t_dist.ppf(0.975, df=n_subs - 1)
-    return s_err * t_crit
+    boot_means = np.zeros((n_bootstraps, area_data.shape[1]))
+    for i in range(n_bootstraps):
+        res_idx = np.random.choice(n_subs, size=n_subs, replace=True)
+        boot_means[i] = np.mean(area_data[res_idx], axis=0)
+    low, high = np.percentile(boot_means, [2.5, 97.5], axis=0)
+    return low, high
 
 
 def print_significance_summary(label, clusters, times, indent="  "):
@@ -160,11 +157,10 @@ for roi_idx, roi in enumerate(rois):
     print(f"\nPlotting Panel: {roi}")
     print(f">>> Peak latencies (95% CI, bootstrap over subjects) -- {roi} <<<")
 
-    all_means = [np.mean(aggregated_data[p][roi_idx], axis=0) for p in partitions
-                 if len(aggregated_data[p][roi_idx]) > 0]
     all_cis = [ci95_across_subjects(aggregated_data[p][roi_idx]) for p in partitions
-               if len(aggregated_data[p][roi_idx]) > 0]
-    local_max_y = max([np.max(m + c) for m, c in zip(all_means, all_cis)]) if all_means else 0.5
+               if len(aggregated_data[p][roi_idx]) > 0]  # each: (low, high) arrays
+
+    local_max_y = max(np.max(high) for low, high in all_cis)
 
     # Row spacing for the staggered significance lanes below y=0 (one lane per curve, plus one
     # extra lane for the VDNN-vs-LLM difference test)
@@ -179,7 +175,7 @@ for roi_idx, roi in enumerate(rois):
         n_subs = len(area_data)
         m_group = np.mean(area_data, axis=0)
         s_err = sem(area_data, axis=0)
-        ci_err = ci95_across_subjects(area_data)  # ribbon CI: uncertainty in the correlation value itself
+        ci_low, ci_high = ci95_across_subjects(area_data)  # shaded area CI
 
         # 1. Cluster Permutation Test
         cluster_results = sign_permutation_cluster_test(area_data, n_permutations=10000)
@@ -189,8 +185,9 @@ for roi_idx, roi in enumerate(rois):
 
         print_significance_summary(config['title'], cluster_results['significant_clusters'], times)
 
-        # 2. Bootstrap Peak Latency CI: uncertainty in the peak's time index, obtained by
-        # resampling subjects and re-finding the argmax each time 
+        # 2. Bootstrap Peak Latency CI: uncertainty in the peak's TIME INDEX, obtained by
+        # resampling subjects and re-finding the argmax each time -- not to be confused
+        # with the ribbon's CI above, which is about the correlation value, not its timing.
         boot_peaks = []
         for _ in range(n_bootstraps):
             res_idx = np.random.choice(n_subs, size=n_subs, replace=True)
@@ -210,13 +207,19 @@ for roi_idx, roi in enumerate(rois):
 
         leg_text = f"{config['title']}: {obs_peak:.0f}ms [{low:.0f}-{high:.0f}ms]"
         model_stats[config['title']] = {
-            'm_group': m_group, 'ci_err': ci_err, 'sig_mask': sig_mask,
+            'm_group': m_group, 'ci_low': ci_low, 'ci_high': ci_high, 'sig_mask': sig_mask,
             'color': config['color'], 'obs_peak': obs_peak, 'peak_val': np.max(m_group),
             'leg_text': leg_text, 'p_idx': p_idx,
         }
 
     # 4. VDNN vs LLM difference: cluster-based sign-permutation test on the per-subject
-    # difference (VDNN - LLM).
+    # difference (VDNN - LLM). This is already a two-tailed test by construction -- it flags
+    # timepoints where the difference is reliably far from 0 in EITHER direction -- which is the
+    # direction-agnostic ("we don't care who's greater") comparison being asked for. Note: taking
+    # np.abs() of the per-subject difference BEFORE the sign-permutation test would break the test
+    # (sign-flipping already-nonnegative data no longer produces a meaningful null), so this
+    # applies the test to the signed difference instead, which achieves the same "either direction
+    # counts" goal correctly.
     vdnn_data = aggregated_data[part_keys[0]][roi_idx]
     llm_data = aggregated_data[part_keys[1]][roi_idx]
     diff_info = None
@@ -241,8 +244,8 @@ for roi_idx, roi in enumerate(rois):
 # (one lane per curve, plus one for the VDNN-vs-LLM difference test).
 # =============================================================================
 print("\n>>> Rendering plot <<<")
-fig, axes = plt.subplots(len(rois), 1, figsize=(12, 6 * len(rois)), sharex=False)
-
+fig, axes = plt.subplots(1, len(rois), figsize=(12, 6 * len(rois)), sharex=False)
+maxes = [0.3, 0.4, 0.5]
 for roi_idx, roi in enumerate(rois):
     ax = axes[roi_idx]
     cache = stats_cache[roi]
@@ -251,9 +254,10 @@ for roi_idx, roi in enumerate(rois):
     n_lanes = len(partitions) + 1
 
     for title, s in model_stats.items():
-        # 3. Curve and Variance Ribbon Plotting --
+        # 3. Curve and Variance Ribbon Plotting -- ribbon uses SEM, matching this script's
+        # own original convention (unlike the encoding version, which ribbons with the 95% CI).
         ax.plot(times, s['m_group'], color=s['color'], lw=8.0, label=s['leg_text'], zorder=3)
-        ax.fill_between(times, s['m_group'] - s['ci_err'], s['m_group'] + s['ci_err'],
+        ax.fill_between(times, s['ci_low'], s['ci_high'],
                          color=s['color'], alpha=0.20, zorder=2)
 
         # Peak Markers with Errorbars
@@ -279,7 +283,7 @@ for roi_idx, roi in enumerate(rois):
 
     bottom_limit = -row_gap * (n_lanes + 1.5)
     top_limit = 0.25
-    ax.set_ylim(bottom=bottom_limit, top=top_limit)
+    ax.set_ylim(bottom=bottom_limit, top=maxes[roi_idx])
 
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
@@ -290,6 +294,62 @@ for roi_idx, roi in enumerate(rois):
 plt.tight_layout()
 save_path = os.path.join(PLOTS_DIR, "roi_wise_rsa_vdnn_llm_variance_partitioning.svg")
 plt.savefig(save_path, dpi=300, bbox_inches='tight')
+print(f"Plot saved to: {save_path}")
+
+
+# =============================================================================
+# Individual-subject grid, 6 rows (subjects) x 3 columns (ROIs). Each panel overlays that
+# single subject's own raw VDNN and LLM unique-variance curves (no CI ribbon, no significance
+# lane -- nothing to bootstrap/permute over n=1, and no VDNN-vs-LLM difference test either),
+# with a legend giving each curve's own peak latency for that subject, plus a peak marker.
+# y-axis is left independent per subplot (amplitudes vary wildly across subjects/ROIs).
+# Purely a visual check for whether the group-level VDNN/LLM variance-partitioning pattern
+# holds up subject by subject.
+# =============================================================================
+print("\n>>> Plotting individual-subject VDNN/LLM variance partitioning grid <<<")
+fig, axes = plt.subplots(len(subject_list), len(rois),
+                          figsize=(7 * len(rois), 4.5 * len(subject_list)), sharex=False)
+
+print("\n>>> Peak latencies per subject/ROI (VDNN, LLM) <<<")
+for s_idx, subject in enumerate(subject_list):
+    for roi_idx, roi in enumerate(rois):
+        ax = axes[s_idx, roi_idx]
+
+        for part_key in part_keys:
+            area_data = aggregated_data[part_key][roi_idx]
+            if len(area_data) == 0 or s_idx >= len(area_data):
+                continue
+            config = partitions[part_key]
+            curve = area_data[s_idx, :]
+            obs_peak = times[np.argmax(curve)]
+            peak_val = np.max(curve)
+            leg_text = f"{config['title']}: {obs_peak:.0f}ms"
+            ax.plot(times, curve, color=config['color'], lw=5, label=leg_text, zorder=3)
+            ax.scatter(obs_peak, peak_val, color=config['color'], s=150,
+                       edgecolor='black', linewidth=1.2, zorder=5)
+
+            print(f"  Sub-{subject}, {roi}, {config['title']}: peak latency = {obs_peak:.0f}ms")
+
+        ax.axvline(0, color='black', lw=3, linestyle='--', alpha=0.5)
+        ax.axhline(0, color='black', lw=3, alpha=0.2)
+        ax.set_xlim(-100, 600)
+        ax.legend(loc='upper right', frameon=False, fontsize=9)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_linewidth(3.0)
+        ax.spines['bottom'].set_linewidth(3.0)
+        ax.set_xlabel('')
+        ax.tick_params(axis='both', labelsize=26, width=3.0, length=14.0, labelbottom=False, labelleft=False)
+
+        if s_idx == 0:
+            ax.set_title(roi, fontweight='bold', fontsize=16, pad=10)
+        if roi_idx == 0:
+            ax.set_ylabel(f'Sub-{subject}', fontweight='bold', fontsize=13)
+
+plt.tight_layout()
+save_path = os.path.join(PLOTS_DIR, "roi_wise_rsa_vdnn_llm_variance_partitioning_individual_participants.svg")
+plt.savefig(save_path, dpi=300, bbox_inches='tight')
+plt.close(fig)
 print(f"Plot saved to: {save_path}")
 
 print(f"\nExecution Complete! Total Execution Time: {time.time() - start_time:.2f} seconds.")

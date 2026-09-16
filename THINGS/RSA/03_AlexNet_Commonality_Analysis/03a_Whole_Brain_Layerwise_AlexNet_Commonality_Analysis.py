@@ -58,7 +58,7 @@ for key, val in vars(args).items():
 # MEG RDMs (averaged across MEG subjects)
 # =============================================================================
 data_dir = '/scratch/jeffreykatab/Projects/fusion/THINGS/prepared_data'
-n_time_points = 141 # number of time points corresponding to tmax = 800 ms
+n_time_points = 141 # number of time points corresponding to tmax = 600 ms
 
 meg_rdms_sum = np.zeros((n_time_points, 4950), dtype=np.float32) # 4950 is the number of unique pairwise distances correspoding to 100 stimuli
 for msub in args.meg_subjects:

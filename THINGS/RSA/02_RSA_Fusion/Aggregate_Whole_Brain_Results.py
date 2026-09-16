@@ -1,17 +1,30 @@
 """
-Aggregates the per-timepoint searchlight RSA fusion files
-(time_point_TTTT.npy, each (n_voxels,)) into one whole-brain time course per
-fMRI subject, shape (n_time, n_voxels). Reports any missing timepoint jobs.
+Aggregates the per-time-point whole-brain MEG-fMRI searchlight RSA fusion correlation maps --
+saved one file per original time point by THINGS_Searchlight_MEG_fMRI_RSA_Fusion.py, across its
+3 time point splits of 50 time points each -- into a single per-subject correlation time course
+of shape (141 time points, n_voxels).
 
-Subjects are saved to separate files because THINGS fMRI voxel counts differ
-across subjects (211,339 / 226,950 / 189,164), so they cannot be stacked.
+Unlike the NSD/BMD searchlight aggregation (which splits into separate lh/rh hemisphere files),
+THINGS' fMRI searchlight results are a single whole-brain array per subject, so there is no
+hemisphere loop here.
+
+Reads:  .../searchlight_fusion/eeg_rdm_metric-{metric}/radius-{radius}/subject-{subject:02d}/
+        time_point_{t:04d}.npy         (141 files, each (n_voxels,))
+Writes: .../searchlight_fusion/eeg_rdm_metric-{metric}/radius-{radius}/aggregated_results/
+        subject-{subject:02d}/subject-{subject:02d}_timecourse.npy   (141, n_voxels)
+
+One instance loops over all 3 THINGS fMRI subjects (1-3) for a single eeg_rdm_metric/radius
+combination -- a single run covers everyone.
 
 Parameters
 ----------
-fmri_subjects : fMRI participants to aggregate.
-eeg_rdm_metric : {'pearsonr', 'crossnobis', 'decoding_accuracy'} results to aggregate.
-radius : searchlight radius (mm) the results were computed with.
-allow_incomplete : save even if some timepoint files are missing (gaps stay NaN).
+eeg_rdm_metric : str
+    Which EEG RDM metric's searchlight results to aggregate.
+radius : float
+    The searchlight radius (mm) whose results to aggregate -- must match the radius
+    THINGS_Searchlight_MEG_fMRI_RSA_Fusion.py was run with.
+n_time_points : int
+    Total number of MEG time points (default 141, for tmax=0.6).
 """
 
 import os
@@ -19,82 +32,87 @@ import argparse
 import time
 
 import numpy as np
-
+from tqdm import tqdm
 
 start_time = time.time()
 
+# =============================================================================
+# Input arguments
+# =============================================================================
 parser = argparse.ArgumentParser()
-parser.add_argument('--fmri_subjects', type=int, nargs='+', default=[1, 2, 3])
 parser.add_argument('--eeg_rdm_metric', type=str, default='pearsonr',
                      choices=['pearsonr', 'crossnobis', 'decoding_accuracy'])
 parser.add_argument('--radius', type=float, default=10.0)
-parser.add_argument('--tmax', type=float, default=0.8)
-parser.add_argument('--allow_incomplete', action='store_true')
-parser.add_argument('--data_dir', type=str,
-                     default='/scratch/jeffreykatab/Projects/fusion/THINGS/prepared_data')
-parser.add_argument('--results_dir', type=str,
-                     default='/scratch/jeffreykatab/Projects/fusion/THINGS/RSA/results/correlations/'
-                             'searchlight_fusion')
-parser.add_argument('--save_dir', type=str,
-                     default='/scratch/jeffreykatab/Projects/fusion/THINGS/RSA/results/correlations/'
-                             'searchlight_fusion_whole_brain')
+parser.add_argument('--n_time_points', type=int, default=141)
 args = parser.parse_args()
 
-print('>>> Aggregating Searchlight RSA Fusion whole-brain results <<<')
-print('Input arguments:')
+print('>>> Aggregating THINGS Searchlight RSA Fusion time courses across time point splits <<<')
+print('\nInput arguments:')
 for key, val in vars(args).items():
     print('{:16} {}'.format(key, val))
 
-times = np.load(os.path.join(args.data_dir, 'meg_times.npy')) # pre-saved file of MEG times from -100 to +800 ms
-n_time = len(times)
-print(f"\nExpecting {n_time} timepoints per subject")
+fmri_subjects = [1, 2, 3]  # all THINGS-fMRI subjects
 
-base_results_dir = os.path.join(
-    args.results_dir, f'eeg_rdm_metric-{args.eeg_rdm_metric}', f'radius-{args.radius}')
-save_dir = os.path.join(
-    args.save_dir, f'eeg_rdm_metric-{args.eeg_rdm_metric}', f'radius-{args.radius}')
-os.makedirs(save_dir, exist_ok=True)
+for subject in fmri_subjects:
 
-for subject in args.fmri_subjects:
+    print(f"\n>>> Subject {subject:02d} <<<")
 
-    subject_dir = os.path.join(base_results_dir, f'subject-{subject:02d}')
-    if not os.path.isdir(subject_dir):
-        print(f"\nfMRI sub-{subject:02d}: results directory not found ({subject_dir}), skipping.")
-        continue
+    # =========================================================================
+    # 1. Directory of the per-time-point files written by THINGS_Searchlight_MEG_fMRI_RSA_Fusion.py
+    # =========================================================================
+    results_dir = os.path.join(
+        f'/scratch/jeffreykatab/Projects/fusion/THINGS/RSA/results/correlations/'
+        f'searchlight_fusion/eeg_rdm_metric-{args.eeg_rdm_metric}/radius-{args.radius}/'
+        f'subject-{subject:02d}'
+    )
+    print(f"Reading per-time-point files from: {results_dir}")
 
-    print(f"\n>>> fMRI sub-{subject:02d} <<<")
-
+    # =========================================================================
+    # 2. Load and stack every time point, in order, into one (n_time_points, n_voxels) array
+    # =========================================================================
     timecourse = None
-    missing = []
-    for t in range(n_time):
-        path = os.path.join(subject_dir, f'time_point_{t:04d}.npy')
-        if not os.path.exists(path):
-            missing.append(t)
+    n_missing = 0
+
+    for t in tqdm(range(args.n_time_points), desc=f'Aggregating time points (subject {subject:02d})'):
+        file_path = os.path.join(results_dir, f'time_point_{t:04d}.npy')
+        try:
+            corrs = np.load(file_path)
+        except FileNotFoundError:
+            print(f"  Missing: {file_path}")
+            n_missing += 1
+            if timecourse is not None:
+                timecourse[t] = np.nan
             continue
-        corrs = np.load(path)
+
         if timecourse is None:
-            timecourse = np.full((n_time, corrs.shape[0]), np.nan, dtype=np.float32)
-            print(f"  {corrs.shape[0]} voxels")
+            # Allocate on the first successfully loaded time point, so the array's voxel count
+            # always matches what was actually written rather than an assumed constant.
+            timecourse = np.full((args.n_time_points, corrs.shape[0]), np.nan, dtype=np.float32)
+
         timecourse[t] = corrs
 
     if timecourse is None:
-        print("  No timepoint files found, skipping.")
+        print(f"  No time point files found in {results_dir} -- skipping subject {subject:02d}.")
         continue
 
-    if missing:
-        print(f"  MISSING {len(missing)}/{n_time} timepoints: {missing[:20]}"
-              f"{' ...' if len(missing) > 20 else ''}")
-        if not args.allow_incomplete:
-            print("  Not saving (pass --allow_incomplete to save with NaN gaps).")
-            del timecourse
-            continue
-    else:
-        print(f"  All {n_time} timepoints present")
+    if n_missing > 0:
+        print(f"  Warning: {n_missing} / {args.n_time_points} time points were missing and left as NaN.")
 
-    save_path = os.path.join(save_dir, f'subject-{subject:02d}.npy')
+    print(f"  Aggregated time course shape: {timecourse.shape} (time points, voxels)")
+
+    # =========================================================================
+    # 3. Save -- mirrors the aggregated_results/subject-.../... convention already used for the
+    # NSD/BMD searchlight fusion results
+    # =========================================================================
+    aggregated_dir = os.path.join(
+        f'/scratch/jeffreykatab/Projects/fusion/THINGS/RSA/results/correlations/'
+        f'searchlight_fusion/eeg_rdm_metric-{args.eeg_rdm_metric}/radius-{args.radius}/'
+        f'aggregated_results/subject-{subject:02d}'
+    )
+    os.makedirs(aggregated_dir, exist_ok=True)
+
+    save_path = os.path.join(aggregated_dir, f'subject-{subject:02d}_timecourse.npy')
     np.save(save_path, timecourse)
-    print(f"  Saved: {save_path} (shape {timecourse.shape})")
+    print(f"  Saved: {save_path}")
 
-    del timecourse
-
-print(f"\nDone! Total Time: {time.time() - start_time:.2f} seconds.")
+print(f"\nTotal Execution Time: {time.time() - start_time:.2f} seconds.")

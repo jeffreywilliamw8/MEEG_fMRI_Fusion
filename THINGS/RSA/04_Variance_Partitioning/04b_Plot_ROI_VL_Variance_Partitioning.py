@@ -27,7 +27,9 @@ partitions = {
 
 EEG_RDM_METRIC = 'pearsonr'   # 'pearsonr' | 'crossnobis' | 'decoding_accuracy'
 RADIUS = 10.0
-NCSNR_THRESHOLD = 0.0
+NCSNR_THRESHOLD = 20.0
+METADATA_DIR = '/scratch/jeffreykatab/Code/Encoding_Models/THINGS/fMRI/prepared'
+
 
 data_dir = '/scratch/jeffreykatab/Projects/fusion/THINGS/prepared_data'
 base_results_dir = (
@@ -37,8 +39,10 @@ base_results_dir = (
 PLOTS_DIR = '/scratch/jeffreykatab/Projects/fusion/THINGS/plots'
 os.makedirs(PLOTS_DIR, exist_ok=True)
 
-times = 1000*np.load(os.path.join(data_dir, 'meg_times.npy')) # pre-saved file of MEG times from -100 to +800 ms
-
+meg_metadata_file = os.path.join(METADATA_DIR, 'meg_P1_metadata.npy')
+meg_metadata = np.load(meg_metadata_file, allow_pickle=True).item()
+raw_times = meg_metadata['meg']['times']  # seconds
+times = 1000 * raw_times[raw_times <= 0.6]  # -100 to +600 ms
 # =============================================================================
 # Aggregation: aggregated_data[partition][roi] -> (n_subjects, n_time)
 # =============================================================================

@@ -1,14 +1,7 @@
-"""
-This script plots the searchlight RSA fusion results for specific ROIs (V1, V4, ventral) across time, averaged across subjects.
-It also performs statistical analyses, including cluster permutation tests and bootstrap confidence intervals for peak latencies.
-"""
-
-
 import numpy as np
 import matplotlib.pyplot as plt
 import os
 from tqdm import tqdm
-from scipy.stats import sem, t as t_dist
 from utils import sign_permutation_cluster_test, get_eeg_times
 from berg import BERG
 import time
@@ -32,15 +25,16 @@ roi_groups = {
 area_labels = ['V1', 'V4', 'ventral']
 area_colors = [
     "#480758",  # V1 (Deep Purple)
-    "#63a1cc",  # hV4 (Steel Blue)
-    "#8fd744",  # ventral (Light Green)
+    "#468fc3",  # hV4 (Steel Blue)
+    "#ea8e16" ,  # ventral (Orange)
 ]
 
-
 n_bootstraps = 10000
-N_NEIGHBOURS = 100
-
+N_NEIGHBOURS = 25
+# Pathing
+# f'/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/correlations/univariate_rsa/subject-{args.subject}'
 base_results_dir = f'/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/correlations/searchlight_fusion/eeg_rdm_metric-pearsonr/n_neighbours-{N_NEIGHBOURS}/aggregated_results'
+#base_results_dir = f'/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/correlations/searchlight_fusion/eeg_rdm_metric-pearsonr/n_neighbours-100/aggregated_resultssubject-{subject}/subject-{subject}_lh_hemisphere_timecourse.npy
 PLOTS_DIR = '/scratch/jeffreykatab/Projects/fusion/NSD/RSA/plots'
 os.makedirs(PLOTS_DIR, exist_ok=True)
 
@@ -83,6 +77,8 @@ for area in area_labels:
                 data_lh = np.load(path_lh)
                 data_rh = np.load(path_rh)
 
+                #print(f"Loaded data for subject {subject}, sub-ROI {sub_roi}: LH shape {data_lh.shape}, RH shape {data_rh.shape}")
+
                 data_dir = '/scratch/jeffreykatab/Projects/fusion/NSD/prepared_data'
                 berg = BERG(berg_dir='/scratch/giffordale95/projects/brain-encoding-response-generator')
                 metadata = berg.get_model_metadata('fmri-nsd_fsaverage-huze', subject=subject)
@@ -108,30 +104,35 @@ for area in area_labels:
                 data_concat = np.concatenate([roi_corrs_left, roi_corrs_right], axis=1)
 
                 if sr == 0:
-                   sub_roi_corrs = data_concat
+                    sub_roi_corrs = data_concat
                 else:
                     sub_roi_corrs = np.concatenate([sub_roi_corrs, data_concat], axis=1)
 
             except FileNotFoundError:
+                    print(f"Warning: Data file for subject {subject}, sub-ROI {sub_roi} not found !")
                     continue
 
 
         subject_area_corrs.append(np.mean(sub_roi_corrs, axis=1)) # Averaging across vertices
-        #subject_area_corrs.append(sub_roi_corrs[:, 8])  # Selecting vertex 8
 
     area_data_list.append(np.array(subject_area_corrs))
 
 
-def ci95_across_subjects(area_data):
-    """
-    95% confidence interval of the across-subject mean at each timepoint, via the
-    standard normal-theory formula (t-critical value * SEM). 
 
+def ci95_across_subjects(area_data, n_bootstraps=10000):
+    """
+    95% confidence interval of the across-subject mean at each timepoint, via percentile
+    bootstrap: resample subjects with replacement n_bootstraps times, recompute the mean
+    across the resampled subjects at each timepoint, then take the 2.5th/97.5th percentiles
+    of that bootstrap distribution.
     """
     n_subs = area_data.shape[0]
-    s_err = sem(area_data, axis=0)
-    t_crit = t_dist.ppf(0.975, df=n_subs - 1)
-    return s_err * t_crit
+    boot_means = np.zeros((n_bootstraps, area_data.shape[1]))
+    for i in range(n_bootstraps):
+        res_idx = np.random.choice(n_subs, size=n_subs, replace=True)
+        boot_means[i] = np.mean(area_data[res_idx], axis=0)
+    low, high = np.percentile(boot_means, [2.5, 97.5], axis=0)
+    return low, high
 
 
 # --- Plotting & Stats ---
@@ -140,12 +141,12 @@ def plot_roi_results(data_list, title, filename):
     plt.figure(figsize=(14, 8))
     ax = plt.gca()
 
-    # Calculate y-limit based on data 
+    # Calculate y-limit based on data (using the 95% CI upper bound, not SEM). Bootstrap once
+    # per ROI here and reuse the result inside the loop below, rather than recomputing it.
     all_means = [np.mean(d, axis=0) for d in data_list]
-    all_cis = [ci95_across_subjects(d) for d in data_list]
-    global_max_y = max([np.max(m + c) for m, c in zip(all_means, all_cis)])
-
-    # Row spacing for the significance bars below y=0 (one lane per area)
+    all_cis = [ci95_across_subjects(d) for d in data_list]  # each: (low, high) arrays
+    global_max_y = max(np.max(high) for _, high in all_cis)
+    # Row spacing for the staggered significance lanes below y=0 (one lane per area)
     row_gap = global_max_y * 0.05
 
     print("\n>>> Peak latency (95% CI, bootstrap over subjects) per ROI <<<")
@@ -153,7 +154,7 @@ def plot_roi_results(data_list, title, filename):
     for i, area_data in enumerate(data_list):
         n_subs = len(subject_list)
         m_group = np.mean(area_data, axis=0)
-        ci_err = ci95_across_subjects(area_data)  #  CI: uncertainty in the correlation value itself
+        ci_low, ci_high = all_cis[i]  # ribbon CI: uncertainty in the correlation value itself
         color = area_colors[i]
 
         # 1. Cluster Permutation Test
@@ -162,13 +163,18 @@ def plot_roi_results(data_list, title, filename):
         for cluster_idx, _, _ in cluster_results['significant_clusters']:
             sig_mask[cluster_idx] = True
 
+        # Significant time window: first and last significant timepoint, pooled across all
+        # significant clusters (not a per-cluster breakdown) -- matching how significant windows
+        # are reported elsewhere in this project (e.g. "significant between ~50ms and 420ms").
         if np.any(sig_mask):
             sig_times = times[sig_mask]
             print(f"{area_labels[i]}: significant from {sig_times.min():.0f}ms to {sig_times.max():.0f}ms")
         else:
             print(f"{area_labels[i]}: no significant time points")
 
-        # 2. Bootstrap Peak Latency CI
+        # 2. Bootstrap Peak Latency CI: uncertainty in the peak's TIME INDEX, obtained by
+        # resampling subjects and re-finding the argmax each time -- not to be confused
+        # with the ribbon's CI above, which is about the correlation value, not its timing.
         boot_peaks = []
         for _ in range(n_bootstraps):
             res_idx = np.random.choice(n_subs, size=n_subs, replace=True)
@@ -183,28 +189,30 @@ def plot_roi_results(data_list, title, filename):
         leg_text = f"{area_labels[i]}: {obs_peak:.0f}ms [{low:.0f}-{high:.0f}ms]"
 
         ax.plot(times, m_group, color=color, lw=12.0, label=leg_text, zorder=3)
-        ax.fill_between(times, m_group - ci_err, m_group + ci_err, color=color, alpha=0.20, zorder=2)
+        ax.fill_between(times, ci_low, ci_high, color=color, alpha=0.20, zorder=2)
 
         # Peak Marker
         peak_val = np.max(m_group)
         ax.scatter(obs_peak, peak_val, color=color, s=600, edgecolors='white', zorder=5)
-        ax.errorbar(obs_peak, peak_val, xerr=[[obs_peak-low], [high-obs_peak]], fmt='none', ecolor='k', elinewidth=1, capsize=3, zorder=4)
+        #ax.errorbar(obs_peak, peak_val, xerr=[[obs_peak-low], [high-obs_peak]],
+        #            fmt='none', ecolor='k', elinewidth=1, capsize=3, zorder=4)
 
-        # Significance Dots bars below the y=0 line (one bar per ROI)
+        # Significance Dots -- staggered lanes BELOW the y=0 line (one lane per area)
         sig_y = -row_gap * (i + 1)
         if np.any(sig_mask):
             ax.scatter(times[sig_mask], [sig_y] * np.sum(sig_mask),
                        color=color, s=50, marker='s', alpha=0.8, edgecolors='none', zorder=3)
 
     # Styling
-    #ax.set_title(f'{title}', fontweight='bold', fontsize=18, pad=40)
-    #ax.set_xlabel('Time (ms)', fontsize=26)
-    #ax.set_ylabel("Spearman's R", fontsize=26)
+    ax.set_title(f'{title}', fontweight='bold', fontsize=28, pad=40)
+    ax.set_xlabel('Time (ms)', fontsize=26)
+    ax.set_ylabel("Spearman's R", fontsize=26)
     ax.axvline(0, color='black', lw=3, linestyle='--', alpha=0.5)
     ax.axhline(0, color='black', lw=3, alpha=0.2)
     ax.set_xlim(-100, 600)
+    ax.set_yticks([0.00, 0.02, 0.04])
     bottom_limit = -row_gap * (len(area_labels) + 1.5)
-    ax.set_ylim(bottom=bottom_limit, top=0.035)
+    ax.set_ylim(bottom=bottom_limit, top=0.040)
 
     #ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), frameon=False, fontsize=12)
 
@@ -219,7 +227,56 @@ def plot_roi_results(data_list, title, filename):
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     print(f"Plot saved to: {save_path}")
 
-# Run the plot
-plot_roi_results(area_data_list, "RSA Correlations", "roi_rsa_fusion.svg")
+# =============================================================================
+# Individual-subject companion plot: 
+# =============================================================================
+def plot_roi_results_individual_subjects(data_list, filename, n_cols=3):
+    n_subs = len(subject_list)
+    n_rows = int(np.ceil(n_subs / n_cols))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(7 * n_cols, 5 * n_rows), sharex=False)
+    axes = np.array(axes).reshape(-1)
+
+    print("\n>>> Peak latency per ROI, per subject (individual-subject plot) <<<")
+    for s_idx, subject in enumerate(subject_list):
+        ax = axes[s_idx]
+        print(f"Participant-{subject}:")
+        for a_idx, area_data in enumerate(data_list):
+            if s_idx >= len(area_data):
+                continue
+            curve = area_data[s_idx, :]
+            obs_peak = times[np.argmax(curve)]
+            peak_val = curve.max()
+            print(f"  {area_labels[a_idx]}: peak latency = {obs_peak:.0f}ms")
+            leg_text = f"{area_labels[a_idx]}: {obs_peak:.0f}ms"
+            ax.plot(times, curve, color=area_colors[a_idx], lw=7, label=leg_text, zorder=3)
+            ax.scatter(obs_peak, peak_val, color=area_colors[a_idx], s=150,
+                       edgecolor='black', linewidth=1.5, zorder=4)
+
+        ax.set_title(f'Participant-{subject}', fontweight='bold', fontsize=16, pad=10)
+        ax.axvline(0, color='black', lw=3.0, linestyle='--', alpha=0.5)
+        ax.axhline(0, color='black', lw=3.0, alpha=0.2)
+        ax.set_xlim(-100, 600)
+        ax.set_xticks([0, 200, 400, 600])
+        ax.set_yticks([0.00, 0.02, 0.04, 0.06])
+        ax.legend(loc='upper right', frameon=False, fontsize=20)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.set_ylim(bottom=-0.004, top=0.064)
+        ax.set_xlabel('')
+        ax.set_ylabel('')
+        ax.tick_params(axis='both', labelsize=11, labelbottom=False, labelleft=False, width=3.0, length=12.0)
+
+    for extra_ax in axes[n_subs:]:
+        extra_ax.axis('off')
+
+    plt.tight_layout()
+    save_path = os.path.join(PLOTS_DIR, filename)
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Plot saved to: {save_path}")
+
+# Run the plots
+plot_roi_results(area_data_list, "Searchlight RSA", "roi_sl_rsa_fusion_k25.svg")
+#plot_roi_results_individual_subjects(area_data_list, "roi_sl_rsa_fusion_individual_participants.svg")
 
 print(f"Execution complete! Total Time: {time.time() - start_time:.2f}s")

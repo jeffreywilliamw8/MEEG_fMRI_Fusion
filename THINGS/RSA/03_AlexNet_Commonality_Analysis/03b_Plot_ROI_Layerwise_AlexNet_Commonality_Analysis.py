@@ -28,8 +28,9 @@ layer_colors = ["#0C076E", "#5121A0", "#4C95BA", "#16B28B",
                 "#D4AC0D", "#D17C20", "#B23492", "#CE1414"]
 
 EEG_RDM_METRIC = 'pearsonr'   # 'pearsonr' | 'crossnobis' | 'decoding_accuracy'
+METADATA_DIR = '/scratch/jeffreykatab/Code/Encoding_Models/THINGS/fMRI/prepared'
 RADIUS = 10.0
-NCSNR_THRESHOLD = 0.0
+NCSNR_THRESHOLD = 20.0
 
 data_dir = '/scratch/jeffreykatab/Projects/fusion/THINGS/prepared_data'
 base_results_dir = (
@@ -39,8 +40,10 @@ base_results_dir = (
 PLOTS_DIR = '/scratch/jeffreykatab/Projects/fusion/THINGS/plots'
 os.makedirs(PLOTS_DIR, exist_ok=True)
 
-times = 1000*np.load(os.path.join(data_dir, 'meg_times.npy')) # pre-saved file of MEG times from -100 to +800 ms
-
+meg_metadata_file = os.path.join(METADATA_DIR, 'meg_P1_metadata.npy')
+meg_metadata = np.load(meg_metadata_file, allow_pickle=True).item()
+raw_times = meg_metadata['meg']['times']  # seconds
+times = 1000 * raw_times[raw_times <= 0.6]  # -100 to +600 ms
 # =============================================================================
 # Aggregation: data[layer][roi] -> (n_subjects, n_time)
 # =============================================================================
@@ -115,8 +118,8 @@ def render_group_figure(save_name):
             ax.set_ylabel('R2 score', fontsize=20)
         ax.axvline(0, color='black', lw=3, linestyle='--', alpha=0.5)
         ax.axhline(0, color='black', lw=3, alpha=0.2)
-        ax.set_xticks([-100, 0, 200, 400, 600, 800])
-        ax.set_xlim(-100, 800)
+        ax.set_xticks([-100, 0, 200, 400, 600])
+        ax.set_xlim(-100, 600)
         ax.set_ylim(bottom=min(global_min_y * 1.15, -0.001), top=global_max_y * 1.15)
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
@@ -158,8 +161,8 @@ def render_individual_subjects_figure(save_name):
 
             ax.axvline(0, color='black', lw=1.5, linestyle='--', alpha=0.5)
             ax.axhline(0, color='black', lw=1.5, alpha=0.2)
-            ax.set_xticks([-100, 0, 200, 400, 600, 800])
-            ax.set_xlim(-100, 800)
+            ax.set_xticks([-100, 0, 200, 400, 600])
+            ax.set_xlim(-100, 600)
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
             ax.tick_params(axis='both', labelsize=11)

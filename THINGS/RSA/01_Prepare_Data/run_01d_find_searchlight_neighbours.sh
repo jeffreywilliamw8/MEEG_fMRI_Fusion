@@ -2,8 +2,8 @@
 #SBATCH --mail-user=jeffreykatab@zedat.fu-berlin.de
 #SBATCH --job-name=find_searchlight_neighbours
 #SBATCH --mail-type=end
-#SBATCH --mem=30000
-#SBATCH --time=02:00:00
+#SBATCH --mem=40000
+#SBATCH --time=00:30:00
 #SBATCH --qos=standard
 
 # Create the parameters combinations

@@ -204,3 +204,33 @@ def fit_timepoint_weights(t, meg_train, fmri_train, alphas=DEFAULT_ALPHAS):
         meg2fmri = RidgeCV(alphas=alphas, alpha_per_target=True)
         meg2fmri.fit(meg_train[:, :, t], fmri_train)
     return meg2fmri.coef_, meg2fmri.intercept_
+
+
+
+import os
+import numpy as np
+import h5py
+ 
+ 
+def load_meg_test_trials(berg, berg_dir, meg_subject, canonical_test_stimuli, tmax=0.6):
+    """
+    Returns (data, times). data shape: (n_stim, n_reps, n_chan, n_time), stimulus order
+    matching canonical_test_stimuli, repetitions kept raw (not averaged).
+    """
+    metadata_meg = berg.get_model_metadata('meg-things_meg_1-vit_b_32', subject=meg_subject)
+    times = metadata_meg['meg']['times']
+    time_idx = np.where(times <= tmax)[0]
+    times = times[time_idx]
+ 
+    meg_test_file = os.path.join(berg_dir, 'model_training_datasets',
+        'train_dataset-things_meg_1', f'meg_P{meg_subject}_split-test.h5')
+    meg_test_all = h5py.File(meg_test_file, 'r')['neural_data']
+    meg_test_all = meg_test_all[:, :, time_idx].astype(np.float32)
+ 
+    test_stimuli_meg = metadata_meg['encoding_model']['test_stimuli']
+    data = []
+    for stim in canonical_test_stimuli:
+        idx = [i for i, x in enumerate(test_stimuli_meg) if x == stim]
+        data.append(meg_test_all[idx])
+    return np.stack(data, axis=0), times
+ 

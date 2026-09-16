@@ -41,7 +41,7 @@ print(f' -> Radius:  {args.radius} mm')
 # Load Voxel Metadata
 #==================================================================
 # Voxel metadata provided in the official THINGS data release
-metadata_file = f'/scratch/jeffreykatab/Code/Encoding_Models/THINGS/fMRI/sub-{args.subject}_VoxelMetadata.csv'
+metadata_file = f'/scratch/jeffreykatab/Code/Encoding_Models/THINGS/fMRI/betas_csv/sub-{args.subject}_VoxelMetadata.csv'
 
 if not os.path.exists(metadata_file):
     raise FileNotFoundError(f"Could not find metadata for subject {args.subject}. Check your path!")

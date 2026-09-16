@@ -1,6 +1,6 @@
 """
 This script plots the RSA searchlight fusion correlation results on inflated brain surface flatmaps for selected time points.
-These are the brain maps used in Figure 2 of the paper. The results are averaged across multiple subjects and saved as PNG images for each time point.
+These are the brain maps used in Figure 1d of the paper. The results are averaged across multiple subjects and saved as PNG images for each time point.
 """
 
 import numpy as np

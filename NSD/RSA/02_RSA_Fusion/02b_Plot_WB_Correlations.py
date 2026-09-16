@@ -1,7 +1,7 @@
 """
 This script plots the averaged EEG-fMRI encoding fusion and RSA correlation results on the brain surface flatmaps for each time point.
 The results are averaged across multiple subjects and saved as PNG images for each time point. The PNG images
-are used to create Supplementary Movie 1 in the paper.
+are used to create Supplementary Movie 1 of the paper.
 
 """
 
@@ -30,6 +30,7 @@ em_corrs_left = np.zeros((359, 163842)) # Initialize an empty array for left hem
 em_corrs_right = np.zeros((359, 163842)) # Initialize an empty array for right hemisphere results
 subject_list = [1,4,5,6,7,8]   # List of subjects to process
 # Loop through each subject and load the corresponding results
+# /scratch/jeffreykatab/Projects/fusion/NSD/Encoding_Models/results/correlations/encoding_fusion/whole_brain/subject-{subject}/correlations_left.npy
 print("Loading Encoding model results...")
 for subject in subject_list:
     corrs_dir = f'/scratch/jeffreykatab/Projects/fusion/NSD/Encoding_Models/results/correlations/encoding_fusion/whole_brain/subject-{subject}'
@@ -46,9 +47,10 @@ M1 = max(np.max(em_corrs_left), np.max(em_corrs_right))  #
 rsa_corrs_left = np.zeros((359, 163842)).astype(np.float32) # Initialize an empty array for left hemisphere results
 rsa_corrs_right = np.zeros((359, 163842)).astype(np.float32)  # Initialize an empty array for right hemisphere results
 # Loop through each subject and load the corresponding results
+# f'/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/correlations/searchlight_fusion/eeg_rdm_metric-pearsonr/n_neighbours-100/aggregated_results/subject-{subject}/subject-{subject}_lh_hemisphere_timecourse.npy
 print("Loading RSA results...")
 for subject in subject_list:
-    corrs_dir = f'/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/correlations/searchlight_fusion/n_neighbours-100/metric_correlation/aggregated_results/subject-{subject}'
+    corrs_dir =  f'/scratch/jeffreykatab/Projects/fusion/NSD/RSA/results/correlations/searchlight_fusion/eeg_rdm_metric-pearsonr/n_neighbours-100/aggregated_results/subject-{subject}'
     data_dir_l = os.path.join(corrs_dir, f'subject-{subject}_lh_hemisphere_timecourse.npy')
     data_dir_r = os.path.join(corrs_dir, f'subject-{subject}_rh_hemisphere_timecourse.npy')
     rsa_corrs_left += np.load(data_dir_l)
@@ -73,7 +75,7 @@ subject = 'fsaverage_nsd_sub-01'
 # =============================================================================
 # Plotting the correlations
 # =============================================================================
-plots_dir = '/scratch/jeffreykatab/Projects/fusion/NSD/RSA/plots/fusion_correlations/whole_brain/em_rsa_subject_averaged'
+plots_dir = '/scratch/jeffreykatab/Projects/fusion/NSD/RSA/plots/correlations/whole_brain/em_rsa_subject_averaged'
 if not os.path.exists(plots_dir):
     os.makedirs(plots_dir)  # Create the directory if it does not exist
 times = get_eeg_times()
@@ -113,7 +115,9 @@ for t in tqdm(range(n_time_points)):
         curvature_brightness=0.5,
         with_rois=True,
         roi_list=['Early', 'Intermediate', 'Ventral', 'Lateral', 'Dorsal'],
-        with_labels=True)
+        with_labels=True,
+        labelsize='30pt'
+        )
 
     # --------------------
     # 2. Load PNGs with PIL
@@ -133,7 +137,7 @@ for t in tqdm(range(n_time_points)):
 
     axes[1].imshow(img2)
     axes[1].axis("off")
-    axes[1].set_title(f"RSA (Spearman's R) | Time: {times[t]:.2f} ms",fontsize=26)
+    axes[1].set_title(f"RSA (Spearman's ⍴) | Time: {times[t]:.2f} ms",fontsize=26)
 
     plt.tight_layout()
 
@@ -144,7 +148,7 @@ for t in tqdm(range(n_time_points)):
     os.remove(png1)
     os.remove(png2)
 
-    print("✅ Saved combined image to:", out_file)
+    print("Saved combined image to:", out_file)
 
 print("Plotting complete!")
 

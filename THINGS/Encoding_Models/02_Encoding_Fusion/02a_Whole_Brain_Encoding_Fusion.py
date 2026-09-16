@@ -45,10 +45,9 @@ parser.add_argument('--n_splits', type=int, default=500)
 parser.add_argument('--data_dir', type=str,
                      default='/scratch/jeffreykatab/Projects/fusion/THINGS/prepared_data')
 
-parser.add_argument('--save_dir', type=str,
-                     default='/scratch/jeffreykatab/Projects/fusion/THINGS/Encoding_Models/results/correlations/whole_brain_encoding_fusion')
+parser.add_argument('--save_dir', type=str, default='/scratch/jeffreykatab/Projects/fusion/THINGS/Encoding_Models/results/correlations/whole_brain_encoding_fusion')
 parser.add_argument('--n_jobs', type=int, default=-1)
-parser.add_argument('--tmax', type=float, default=0.8)
+parser.add_argument('--tmax', type=float, default=0.6)
 args = parser.parse_args()
 
 print('>>> MEG-fMRI Encoding Fusion (Whole-Brain) <<<')
@@ -97,8 +96,7 @@ assert meg_test.shape[0] == fmri_test_full.shape[0], \
     f"sub-{args.fmri_subject:02d}: MEG test ({meg_test.shape[0]}) / fMRI test " \
     f"({fmri_test_full.shape[0]}) stimulus count mismatch."
 
-# Shared voxel-split scheme: same --fmri_split index works for every
-# subject, chunk sizes just vary slightly (see module docstring).
+
 fmri_train_splits = np.array_split(fmri_train_full, args.n_splits, axis=1)
 fmri_test_splits = np.array_split(fmri_test_full, args.n_splits, axis=1)
 fmri_train = fmri_train_splits[args.fmri_split - 1]
@@ -111,7 +109,7 @@ print(f"Split {args.fmri_split}/{args.n_splits}: {n_voxels} voxels "
 fmri_test_z = (fmri_test - fmri_test.mean(0)) / (fmri_test.std(0) + eps)
 
 # =============================================================================
-# Fitting/predicting/correlating, parallelized across timepoints
+# Fitting+predicting+correlating, parallelized across timepoints
 # =============================================================================
 results = Parallel(n_jobs=args.n_jobs)(
     delayed(fit_predict_correlate_timepoint)(

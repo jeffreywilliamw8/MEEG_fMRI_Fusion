@@ -2,7 +2,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from tqdm import tqdm
-from scipy.stats import sem, t as t_dist
 from utils import sign_permutation_cluster_test, get_eeg_times
 import time
 
@@ -24,15 +23,16 @@ area_labels = ['V1', 'V4', 'ventral']
 n_bootstraps = 10000
 
 # Mapping internal saved partial correlation dictionary keys to their curve identity within each
+# ROI's subplot -- fixed colors held constant across every subplot (blue for VDNN, orange for LLM).
 partitions = {
     'vision_partial_correlation': {'title': 'VDNN', 'color': "#63a1cc"},   # steel blue
     'language_partial_correlation': {'title': 'LLM', 'color': "#fd9f25"}, # orange
 }
 
-# Grey used for the VDNN-vs-LLM difference significance horizontal bar
+# Grey used for the VDNN-vs-LLM difference significance bar
 DIFF_COLOR = "#595959"
 
-# f'/scratch/jeffreykatab/Projects/fusion/NSD/Encoding_Models/results/partial_correlation/subject-{args.subject}'
+
 base_results_dir = '/scratch/jeffreykatab/Projects/fusion/NSD/Encoding_Models/results/partial_correlation'
 PLOTS_DIR = '/scratch/jeffreykatab/Projects/fusion/NSD/Encoding_Models/plots'
 os.makedirs(PLOTS_DIR, exist_ok=True)
@@ -40,7 +40,7 @@ os.makedirs(PLOTS_DIR, exist_ok=True)
 # --- Time Vector Logic ---
 times = get_eeg_times()
 n_timepoints = len(times)
-post_stim_mask = times >= 0  # for the mean/SD post-stimulus summary below
+post_stim_mask = times >= 0 
 
 # --- Data Aggregation ---
 # Structural layout: aggregated_data[partition_key][Area_idx] -> shape: (n_subjects, n_time)
@@ -60,6 +60,7 @@ for a_idx, area in enumerate(area_labels):
                 file_path_even = os.path.join(base_results_dir, f'subject-{subject}', f'{sub_roi}_{hemi}_cv_split-even.npy')
                 file_path_odd = os.path.join(base_results_dir, f'subject-{subject}', f'{sub_roi}_{hemi}_cv_split-odd.npy')
 
+
                 if os.path.exists(file_path_even):
                     # Load the unified partial correlation dictionary file
                     results_dict_even = np.load(file_path_even, allow_pickle=True).item()
@@ -78,7 +79,7 @@ for a_idx, area in enumerate(area_labels):
             if len(pooled_vertices[part]) > 0:
                 # Concatenate all hemispheres and sub-ROIs along the vertex dimension (axis=1)
                 all_area_vertices = np.concatenate(pooled_vertices[part], axis=1)
-                # Average across the combined vertex pool to get a 1D timecourse
+                # Average across the combined vertex pool to get a clean 1D timecourse
                 subject_timecourse = np.mean(all_area_vertices, axis=1)
                 aggregated_data[part][a_idx].append(subject_timecourse)
 
@@ -88,15 +89,20 @@ for part in partitions:
         aggregated_data[part][a_idx] = np.array(aggregated_data[part][a_idx])
 
 
-def ci95_across_subjects(area_data):
+def ci95_across_subjects(area_data, n_bootstraps=10000):
     """
-    95% confidence interval of the across-subject mean at each timepoint, via the
-    standard normal-theory formula (t-critical value * SEM).
+    95% confidence interval of the across-subject mean at each timepoint, via percentile
+    bootstrap: resample subjects with replacement n_bootstraps times, recompute the mean
+    across the resampled subjects at each timepoint, then take the 2.5th/97.5th percentiles
+    of that bootstrap distribution.
     """
     n_subs = area_data.shape[0]
-    s_err = sem(area_data, axis=0)
-    t_crit = t_dist.ppf(0.975, df=n_subs - 1)
-    return s_err * t_crit
+    boot_means = np.zeros((n_bootstraps, area_data.shape[1]))
+    for i in range(n_bootstraps):
+        res_idx = np.random.choice(n_subs, size=n_subs, replace=True)
+        boot_means[i] = np.mean(area_data[res_idx], axis=0)
+    low, high = np.percentile(boot_means, [2.5, 97.5], axis=0)
+    return low, high
 
 
 def print_significance_summary(label, clusters, times, indent="  "):
@@ -116,7 +122,6 @@ def print_significance_summary(label, clusters, times, indent="  "):
             c_times = times[np.asarray(cluster_idx)]
             print(f"{indent}  Cluster {c_i + 1}: {c_times.min():.0f}ms to {c_times.max():.0f}ms")
 
-
 # =============================================================================
 # Compute all stats once per ROI -- curves, cluster tests, peak latencies, post-stimulus
 # mean/SD, and the VDNN-vs-LLM difference test -- printing everything here, then plot below.
@@ -125,22 +130,22 @@ print("\n>>> Computing stats per ROI <<<")
 stats_cache = {}   # stats_cache[area] = {'model_stats': {...}, 'row_gap': ..., 'local_max_y': ...}
 diff_cache = {}    # diff_cache[area] = {'sig_mask': ...} or None
 
-part_keys = list(partitions.keys()) 
+part_keys = list(partitions.keys())  # [vision, language] -- order matters for the VDNN-LLM diff
 
 for a_idx, area in enumerate(area_labels):
     print(f"\nPlotting Panel: {area}")
     print(f">>> Peak latencies (95% CI, bootstrap over subjects) -- {area} <<<")
 
     # Calculate unique local y-limits to maximize tracking resolution inside this subplot
-    # (using the 95% CI half-width, not SEM)
-    all_means = [np.mean(aggregated_data[p][a_idx], axis=0) for p in partitions
-                 if len(aggregated_data[p][a_idx]) > 0]
+    # (using the 95% CI upper bound). Bootstrap once per partition and reuse below, rather
+    # than recomputing it.
     all_cis = [ci95_across_subjects(aggregated_data[p][a_idx]) for p in partitions
-               if len(aggregated_data[p][a_idx]) > 0]
-    local_max_y = max([np.max(m + c) for m, c in zip(all_means, all_cis)]) if all_means else 0.1
+               if len(aggregated_data[p][a_idx]) > 0]  # each: (low, high) arrays
 
-    # Row spacing for the staggered significance horizontal bars below y=0 (one bar per curve, plus one
-    # extra bar for the VDNN-vs-LLM difference test)
+    local_max_y = max(np.max(high) for low, high in all_cis) if all_cis else 0.1
+
+    # Row spacing for the staggered significance lanes below y=0 (one lane per curve, plus one
+    # extra lane for the VDNN-vs-LLM difference test)
     row_gap = local_max_y * 0.05
 
     model_stats = {}
@@ -151,7 +156,7 @@ for a_idx, area in enumerate(area_labels):
 
         n_subs = len(area_data)
         m_group = np.mean(area_data, axis=0)
-        ci_err = ci95_across_subjects(area_data)  # ribbon CI: uncertainty in the correlation value itself
+        ci_low, ci_high = ci95_across_subjects(area_data)  # shaded area CI: uncertainty in the correlation value itself
 
         # 1. Cluster Permutation Test
         cluster_results = sign_permutation_cluster_test(area_data, n_permutations=10000)
@@ -172,6 +177,8 @@ for a_idx, area in enumerate(area_labels):
 
         print(f"  {config['title']}: peak latency = {obs_peak:.0f}ms [95% CI: {low:.0f}-{high:.0f}ms]")
 
+        # Mean +/- SD post-stimulus correlation: per-subject post-stimulus mean first, then the
+        # mean and SD of those subject-level values (SD across subjects, NOT across time).
         post_stim_vals = area_data[:, post_stim_mask].mean(axis=1)
         mean_val = np.mean(post_stim_vals)
         sd_val = np.std(post_stim_vals, ddof=1)
@@ -179,7 +186,7 @@ for a_idx, area in enumerate(area_labels):
 
         leg_text = f"{config['title']}: {obs_peak:.0f}ms [{low:.0f}-{high:.0f}ms]"
         model_stats[config['title']] = {
-            'm_group': m_group, 'ci_err': ci_err, 'sig_mask': sig_mask,
+            'm_group': m_group, 'ci_low': ci_low, 'ci_high': ci_high, 'sig_mask': sig_mask,
             'color': config['color'], 'obs_peak': obs_peak, 'peak_val': np.max(m_group),
             'leg_text': leg_text, 'p_idx': p_idx,
         }
@@ -206,11 +213,11 @@ for a_idx, area in enumerate(area_labels):
 
 
 # =============================================================================
-# Plotting -- one subplot per ROI, VDNN and LLM curves, staggered significance horizontal bars below y=0
+# Plotting -- one subplot per ROI, VDNN and LLM curves, significance bars below y=0
 # (one bar per curve, plus one for the VDNN-vs-LLM difference test).
 # =============================================================================
 print("\n>>> Rendering plot <<<")
-fig, axes = plt.subplots(len(area_labels), 1, figsize=(12, 6 * len(area_labels)), sharex=False)
+fig, axes = plt.subplots(1, len(area_labels), figsize=(6 * len(area_labels), 6), sharex=False)
 
 for a_idx, area in enumerate(area_labels):
     ax = axes[a_idx]
@@ -220,15 +227,15 @@ for a_idx, area in enumerate(area_labels):
     n_lanes = len(partitions) + 1
 
     for title, s in model_stats.items():
-        # 3. Curve and shaded area Plotting
+        # 3. Curve and Variance Ribbon Plotting
         ax.plot(times, s['m_group'], color=s['color'], lw=8.0, label=s['leg_text'], zorder=3)
-        ax.fill_between(times, s['m_group'] - s['ci_err'], s['m_group'] + s['ci_err'],
+        ax.fill_between(times, s['ci_low'], s['ci_high'],
                          color=s['color'], alpha=0.20, zorder=2)
 
         # Peak Markers with Errorbars
         ax.scatter(s['obs_peak'], s['peak_val'], color=s['color'], s=500, edgecolors='white', zorder=5)
 
-        # Significance Markers -- staggered horizontal bars below the y=0 line (one lane per curve)
+        # Significance Markers -- staggered lanes BELOW the y=0 line (one lane per curve)
         sig_y = -row_gap * (s['p_idx'] + 1)
         if np.any(s['sig_mask']):
             ax.scatter(times[s['sig_mask']], [sig_y] * np.sum(s['sig_mask']),
@@ -267,13 +274,13 @@ save_path = os.path.join(PLOTS_DIR, "roi_wise_vdnn_llm_partial_correlation.svg")
 plt.savefig(save_path, dpi=300, bbox_inches='tight')
 print(f"Plot saved to: {save_path}")
 
-
 # =============================================================================
 # Individual-subject grid, 6 rows (subjects) x 3 columns (ROIs).
 # =============================================================================
 print("\n>>> Plotting individual-subject VDNN/LLM partial correlation grid <<<")
 fig, axes = plt.subplots(len(subject_list), len(area_labels),
-                          figsize=(7 * len(area_labels), 4.5 * len(subject_list)), sharex=False)
+                          figsize=(7 * len(area_labels), 4.5 * len(subject_list)),
+                          sharex=False, sharey=True)
 
 for s_idx, subject in enumerate(subject_list):
     for a_idx, area in enumerate(area_labels):
@@ -286,16 +293,21 @@ for s_idx, subject in enumerate(subject_list):
             config = partitions[part_key]
             curve = area_data[s_idx, :]
             obs_peak = times[np.argmax(curve)]
-            leg_text = f"{config['title']}: {obs_peak:.0f}ms"
-            ax.plot(times, curve, color=config['color'], lw=1.8, label=leg_text, zorder=3)
+            ax.plot(times, curve, color=config['color'], lw=5, zorder=3)
 
-        ax.axvline(0, color='black', lw=1.5, linestyle='--', alpha=0.5)
-        ax.axhline(0, color='black', lw=1.5, alpha=0.2)
+        ax.axvline(0, color='black', lw=3, linestyle='--', alpha=0.5)
+        ax.axhline(0, color='black', lw=3, alpha=0.2)
         ax.set_xlim(-100, 600)
-        ax.legend(loc='upper right', frameon=False, fontsize=9)
+        ax.set_xticks([0, 200, 400, 600])
+        #ax.set_yticks([0.0, 0.1, 0.2, 0.3])
+        #ax.legend(loc='upper right', frameon=False, fontsize=9)
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
-        ax.tick_params(axis='both', labelsize=9)
+        ax.spines['left'].set_linewidth(3.0)
+        ax.spines['bottom'].set_linewidth(3.0)
+        ax.set_xlabel('')
+        ax.tick_params(axis='both', labelsize=26, width=3.0, length=14.0,
+                        labelbottom=False, labelleft=False)
 
         if s_idx == 0:
             ax.set_title(area, fontweight='bold', fontsize=16, pad=10)

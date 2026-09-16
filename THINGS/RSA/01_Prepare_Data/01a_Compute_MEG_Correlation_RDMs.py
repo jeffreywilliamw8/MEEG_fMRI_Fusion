@@ -25,16 +25,17 @@ import argparse
 import numpy as np
 import h5py
 from tqdm import tqdm
-from berg import BERG  # NOTE: adjust this import to match your BERG installation
+from berg import BERG 
 
+# '/scratch/giffordale95/projects/brain-encoding-response-generator'
 parser = argparse.ArgumentParser()
 parser.add_argument('--meg_subjects', type=int, nargs='+', default=[1, 2, 3, 4])
-parser.add_argument('--berg_dir', type=str, default='/scratch/jeffreykatab/berg')
+parser.add_argument('--berg_dir', type=str, default='/scratch/giffordale95/projects/brain-encoding-response-generator')
 parser.add_argument('--data_dir', type=str,
                      default='/scratch/jeffreykatab/Projects/fusion/THINGS/prepared_data')
 parser.add_argument('--save_dir', type=str,
                      default='/scratch/jeffreykatab/Projects/fusion/THINGS/prepared_data')
-parser.add_argument('--tmax', type=float, default=0.8)
+parser.add_argument('--tmax', type=float, default=0.6)
 args = parser.parse_args()
 
 os.makedirs(args.save_dir, exist_ok=True)
@@ -74,7 +75,7 @@ for msub in tqdm(args.meg_subjects, desc='MEG subjects'):
     times = times[times <= args.tmax]
 
     # Raw test responses (repetitions not yet averaged).
-    meg_test_file = os.path.join(args.berg_dir, 'model_training_datasets',
+    meg_test_file = os.path.join('/scratch/jeffreykatab/berg', 'model_training_datasets',
         'train_dataset-things_meg_1', f'meg_P{msub}_split-test.h5')
     meg_test_all = h5py.File(meg_test_file, 'r')['neural_data']
     meg_test_all = meg_test_all[:, :, time_idx].astype(np.float32)

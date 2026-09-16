@@ -2,8 +2,8 @@
 #SBATCH --mail-user=jeffreykatab@zedat.fu-berlin.de
 #SBATCH --job-name=whole_brain_encoding_fusion
 #SBATCH --mail-type=end
-#SBATCH --mem=25000
-#SBATCH --time=00:30:00
+#SBATCH --mem=40000
+#SBATCH --time=01:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=10
@@ -14,7 +14,7 @@ declare -a fmri_subject_all
 declare -a fmri_split_all
 index=0
 for s in 1 2 3; do
-    for f in $(seq 251 500) ; do
+    for f in $(seq 1 250) ; do
         fmri_subject_all[$index]=$s
         fmri_split_all[$index]=$f
         ((index=index+1))

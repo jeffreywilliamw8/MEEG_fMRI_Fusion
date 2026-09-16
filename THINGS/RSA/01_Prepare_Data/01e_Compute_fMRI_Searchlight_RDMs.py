@@ -44,6 +44,7 @@ ROOT_DIR = '/scratch/jeffreykatab/Code/Encoding_Models/THINGS'
 _, fmri_responses = load_fmri_wb_data(args.subject) # loading test set only
 
 # --- Paths ---
+# f'/scratch/jeffreykatab/Projects/fusion/THINGS/RSA/results/searchlight_look_ups/sub-{args.subject}'
 LUT_PATH = f'/scratch/jeffreykatab/Projects/fusion/THINGS/RSA/results/searchlight_look_ups/sub-{args.subject:02d}/searchlight_lut_r-{args.radius}mm.npy'
 SAVE_DIR = f'/scratch/jeffreykatab/Projects/fusion/THINGS/RSA/results/searchlight_rdms/sub-{args.subject:02d}'
 os.makedirs(SAVE_DIR, exist_ok=True)

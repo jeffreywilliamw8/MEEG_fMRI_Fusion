@@ -2,7 +2,7 @@
 #SBATCH --mail-user=jeffreykatab@zedat.fu-berlin.de
 #SBATCH --job-name=compute_fmri_searchlight_rdms
 #SBATCH --mail-type=end
-#SBATCH --mem=30000
+#SBATCH --mem=40000
 #SBATCH --time=3:00:00
 #SBATCH --qos=standard
 
@@ -30,4 +30,4 @@ source /home/jeffreykatab/anaconda3/etc/profile.d/conda.sh
 conda activate myenv
 
 # Run the job
-python 01e_Compute_fMRI_Searchlight_RDMs.py --subject $subject 
+python 01e_Compute_fMRI_Searchlight_RDMs.py --subject $subject
