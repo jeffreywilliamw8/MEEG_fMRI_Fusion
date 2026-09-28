@@ -45,32 +45,13 @@ Through [this interactive Colab tutorial](https://colab.research.google.com/driv
 
 ## ♻️ Reproducibility
 
-This repository contains code to reproduce all [paper's results].
+This repository contains code to reproduce all of the paper results.
 
 
 
 ### ⚙️ Installation
 
-To run the code, you first need to install the libraries in the [requirements.txt](<REPO_LINK>/blob/main/requirements.txt) file within an Anaconda environment. Here, we guide you through the installation steps.
-
-First, create an [Anaconda](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html) environment with the correct Python version:
-
-```shell
-conda create -n fusion_env python=<PYTHON_VERSION>
-```
-
-Next, download the [requirements.txt](<REPO_LINK>/blob/main/requirements.txt) file, navigate with your terminal to the download directory, and activate the Anaconda environment previously created with:
-
-```shell
-source activate fusion_env
-```
-
-Now you can install the libraries with:
-
-```shell
-pip install -r requirements.txt
-```
-
+To run the code, you first need to install the libraries in the [requirements.txt](<REPO_LINK>/blob/main/requirements.txt) file within an Anaconda environment. 
 
 
 ### 📦 Code description
