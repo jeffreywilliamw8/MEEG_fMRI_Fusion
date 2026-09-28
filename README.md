@@ -58,9 +58,9 @@ To run the code, you first need to install the libraries in the [requirements.tx
 
 The code is organized in one folder per dataset. Within each folder, scripts are numbered by analysis stage: data preparation first, then the encoding-based and RSA-based fusion analyses, each with separate compute and plotting scripts.
 
-* **[`NSD`](<REPO_LINK>/tree/main/NSD):** Fusion analyses between NSD's fMRI responses and the NSD EEG responses.
-* **[`THINGS`](<REPO_LINK>/tree/main/THINGS):** Fusion analyses between THINGS-MEG and THINGS-fMRI responses.
-* **[`BMD_EMD`](<REPO_LINK>/tree/main/BMD_EMD):** Fusion analyses between EMD's EEG responses and BMD's fMRI responses.
+* **[`NSD`](https://github.com/jeffreywilliamw8/MEEG_fMRI_Fusion/tree/main/NSD):** Fusion analyses between NSD's fMRI responses and the NSD EEG responses.
+* **[`THINGS`](https://github.com/jeffreywilliamw8/MEEG_fMRI_Fusion/tree/main/THINGS):** Fusion analyses between THINGS-MEG and THINGS-fMRI responses.
+* **[`BOLD_EEG_Moments`](https:/github.com/jeffreywilliamw8/MEEG_fMRI_Fusion/tree/main/BOLD_EEG_Moments):** Fusion analyses between EMD's EEG responses and BMD's fMRI responses.
 
 
 
