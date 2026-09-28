@@ -1,4 +1,4 @@
-# M/EEG-fMRI Fusion
+# M/EEG-fMRI Fusion using encoding models and RSA
 
 This is the accompanying GitHub repository of the paper "M/EEG-fMRI fusion using encoding models and Representational Similarity Analysis: a tutorial. The paper presents two methods to combine the high temporal resolution of M/EEG with the high spatial resolution of fMRI, resolving visual processing in both space and time: **encoding-based fusion**, which predicts fMRI responses from M/EEG responses with regression models, and **RSA-based fusion**, which compares the representational geometries (pairwise stimulus dissimilarities) of the two modalities. Both approaches link M/EEG and fMRI through their responses to the same stimuli, so the two modalities can come from separate sessions and different participants.
 
