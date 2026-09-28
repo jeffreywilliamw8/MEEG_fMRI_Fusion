@@ -21,10 +21,10 @@ This is the accompanying GitHub repository of the paper "M/EEG-fMRI fusion using
 
 ## 🔬 Analyses
 
-All analyses follow the same two-part structure across datasets.
+All analyses follow the same generic structure across datasets.
 
 ### Encoding-based fusion
-
+* **Data preparation:** Preparing the preprocessed data into a proper format for downstream analyses.
 * **M/EEG-to-fMRI encoding fusion:** At each M/EEG time point, a ridge regression predicts fMRI responses from M/EEG sensor patterns, and the predicted and actual test fMRI responses are correlated. This gives a fusion time course for every fMRI vertex/voxel, analyzed at the ROI and whole-brain level.
 * **Stimulus feature encoding fusion (SFEF):** Adds a model of the stimuli, to reveal the representational format of the brain responses captured by M/EEG and fMRI. In phase 1, M/EEG-to-fMRI encoding models are trained on one half of the training data. In phase 2, they are applied to the M/EEG responses of the other half to obtain time-resolved predicted fMRI (t-fMRI), and a second encoding model predicts the t-fMRI from stimulus features, evaluated on the actual test fMRI. The results are averaged over both assignments of the two halves. Stimulus features include layerwise deep neural network activations (AlexNet for images, r3d_18 for videos), and vision (VDNN) and language (LLM) model features.
 * **Unique VDNN vs LLM contributions:** Partial correlation between the actual test fMRI and the VDNN-based (or LLM-based) SFEF prediction, controlling for the other model's prediction.
